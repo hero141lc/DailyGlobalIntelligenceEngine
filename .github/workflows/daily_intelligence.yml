@@ -10,7 +10,10 @@ jobs:
   generate-report:
     runs-on: ubuntu-latest
     
-    # 🔥 关键：必须添加 permissions 才能访问 GitHub Models
+    # 🔥 关键1：必须绑定 environment 才能使用 Environment secrets
+    environment: main
+    
+    # 🔥 关键2：必须添加 permissions 才能访问 GitHub Models
     permissions:
       contents: read
       models: read

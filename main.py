@@ -115,7 +115,7 @@ def process_data(items: List[Dict]) -> List[Dict]:
         from config import settings
         if settings.GITHUB_TOKEN:
             # 使用 GitHub 提供的模型
-            summarized_items = summarize_batch(valid_items, delay=0.5)
+            summarized_items = summarize_batch(valid_items, delay=1.2)  # 使用1.2秒延迟避免429限流
             logger.info(f"✓ 摘要生成完成：{len(summarized_items)} 条")
             return summarized_items
         else:

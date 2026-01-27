@@ -73,6 +73,18 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
                 logger.error(f"GitHub Models API 认证失败（401）：请检查 GITHUB_TOKEN 是否正确，并确保 workflow 中设置了 permissions.models: read")
                 return None
             
+            # 检查 429 错误（限流）
+            if response.status_code == 429:
+                # 429 错误需要等待更长时间
+                wait_time = 10 + (2 ** attempt)  # 基础10秒 + 指数退避
+                logger.warning(f"GitHub Models API 限流（429），等待 {wait_time} 秒后重试（尝试 {attempt + 1}/{max_retries}）")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue  # 直接重试，不抛出异常
+                else:
+                    logger.error(f"摘要生成最终失败（限流）: {item.get('title', '')}")
+                    return None
+            
             response.raise_for_status()
             result = response.json()
             
@@ -87,12 +99,22 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
                 return None
                 
         except requests.exceptions.RequestException as e:
-            # 401 错误已经在上面处理，这里处理其他 HTTP 错误
+            # 401 和 429 错误已经在上面处理，这里处理其他 HTTP 错误
             if hasattr(e, 'response') and e.response is not None:
                 status_code = e.response.status_code
                 if status_code == 401:
                     logger.error(f"GitHub Models API 认证失败（401）：请检查 GITHUB_TOKEN 和 workflow permissions")
                     return None
+                if status_code == 429:
+                    # 429 错误已经在上面处理，这里不应该到达
+                    wait_time = 10 + (2 ** attempt)
+                    logger.warning(f"GitHub Models API 限流（429），等待 {wait_time} 秒后重试")
+                    if attempt < max_retries - 1:
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"摘要生成最终失败（限流）: {item.get('title', '')}")
+                        return None
                 logger.warning(f"摘要生成失败（HTTP {status_code}，尝试 {attempt + 1}/{max_retries}）: {e}")
             else:
                 logger.warning(f"摘要生成失败（尝试 {attempt + 1}/{max_retries}）: {e}")
@@ -129,13 +151,13 @@ def summarize_item(item: Dict) -> Dict:
     item["summary"] = summary
     return item
 
-def summarize_batch(items: List[Dict], delay: float = 0.5) -> List[Dict]:
+def summarize_batch(items: List[Dict], delay: float = 1.2) -> List[Dict]:
     """
     批量生成摘要
     
     Args:
         items: 数据项列表
-        delay: 每次请求之间的延迟（秒），避免速率限制
+        delay: 每次请求之间的延迟（秒），避免速率限制（默认1.2秒，避免429错误）
     
     Returns:
         添加了 summary 字段的数据项列表
@@ -147,7 +169,8 @@ def summarize_batch(items: List[Dict], delay: float = 0.5) -> List[Dict]:
         summarized_item = summarize_item(item)
         summarized_items.append(summarized_item)
         
-        # 延迟以避免速率限制
+        # 延迟以避免速率限制（生产级：1.2秒延迟）
+        # GitHub Models 免费版有速率限制，需要适当延迟
         if i < len(items) - 1:
             time.sleep(delay)
     

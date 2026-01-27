@@ -54,9 +54,11 @@ NITTER_INSTANCES = [
 RSS_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
         "https://rsshub.app/twitter/user/elonmusk",
+        "https://rsshub.app/telegram/channel/ElonMusk",
     ],
     "twitter_trump": [
         "https://rsshub.app/twitter/user/realDonaldTrump",
+        "https://rsshub.app/telegram/channel/real_DonaldJTrump",
     ],
     "energy": [
         "https://www.eia.gov/rss/todayinenergy.xml",
