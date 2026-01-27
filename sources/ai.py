@@ -23,9 +23,19 @@ def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict
         feedparser 解析结果，失败返回 None
     """
     try:
+        # 添加延迟，避免限流
+        import time
+        time.sleep(1)
+        
         response = requests.get(url, timeout=timeout, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; DGIE/1.0)"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         })
+        
+        # 429 错误不重试
+        if response.status_code == 429:
+            logger.warning(f"RSS 源限流 {url}，跳过")
+            return None
+        
         response.raise_for_status()
         feed = feedparser.parse(response.content)
         return feed

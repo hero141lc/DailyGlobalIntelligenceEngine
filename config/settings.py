@@ -36,18 +36,12 @@ if RECIPIENT_EMAIL_RAW and RECIPIENT_EMAIL_RAW.strip():
 else:
     RECIPIENT_EMAIL = []
 
-# LLM API 配置
-# 支持使用 GitHub Token 或 Hugging Face Token 访问免费模型
-# 优先使用 HF_TOKEN，如果没有则使用 GITHUB_TOKEN
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-GITHUB_MODELS_API_KEY = HF_TOKEN or GITHUB_TOKEN  # 自动选择可用的 token
-# 如果使用 GitHub Token，需要先在 Hugging Face 设置中关联 GitHub 账号
-# 或者直接使用 Hugging Face Token（推荐）
-HF_MODEL_NAME = os.getenv("HF_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct")  # 免费中文模型
-
-# OpenAI API 配置（备选，需付费）
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# LLM API 配置 - 使用 GitHub 提供的模型
+# GitHub Actions 会自动提供 GITHUB_TOKEN 环境变量（通过 github.token）
+# 也可以手动在 Secrets 中配置 GITHUB_TOKEN
+# 如果 GITHUB_TOKEN 未设置，代码会尝试使用 github.token（在 GitHub Actions 环境中）
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # GitHub Token
+GITHUB_MODEL_NAME = os.getenv("GITHUB_MODEL_NAME", "gpt-4o-mini")  # GitHub 提供的模型名称
 
 # 数据源配置
 NITTER_INSTANCES = [
@@ -59,32 +53,30 @@ NITTER_INSTANCES = [
 # RSS 源配置
 RSS_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
-        "https://nitter.net/elonmusk/rss",
-        "https://nitter.pussthecat.org/elonmusk/rss",
+        "https://rsshub.app/twitter/user/elonmusk",
     ],
     "twitter_trump": [
-        "https://nitter.net/realDonaldTrump/rss",
-        "https://nitter.pussthecat.org/realDonaldTrump/rss",
+        "https://rsshub.app/twitter/user/realDonaldTrump",
     ],
     "energy": [
         "https://www.eia.gov/rss/todayinenergy.xml",
-        "https://feeds.reuters.com/reuters/energy",
+        "https://news.google.com/rss/search?q=energy+power+electricity+price&hl=en-US&gl=US&ceid=US:en",
     ],
     "ai": [
         "https://techcrunch.com/tag/artificial-intelligence/feed/",
         "https://hnrss.org/frontpage",
     ],
     "space": [
-        "https://spacenews.com/feed/",
-        "https://feeds.reuters.com/reuters/aerospace",
+        "https://news.google.com/rss/search?q=SpaceX+Starlink+launch&hl=en-US&gl=US&ceid=US:en",
     ],
     "fed": [
         "https://www.federalreserve.gov/feeds/press_all.xml",
-        "https://feeds.reuters.com/reuters/businessNews",
+        "https://news.google.com/rss/search?q=Federal+Reserve+FOMC+interest+rate&hl=en-US&gl=US&ceid=US:en",
     ],
 }
 
 # 股票配置
+# 注意：yfinance 在某些网络环境下可能无法访问，这是正常现象
 STOCK_INDICES = {
     "S&P500": "^GSPC",
     "NASDAQ": "^IXIC",

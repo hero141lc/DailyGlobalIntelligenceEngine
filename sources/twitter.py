@@ -11,9 +11,9 @@ from config import settings
 from utils.logger import logger
 from utils.time import is_today, format_date_for_display
 
-def fetch_nitter_rss(url: str, timeout: int = 10) -> Optional[feedparser.FeedParserDict]:
+def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict]:
     """
-    获取 Nitter RSS 源
+    获取 RSS 源（使用 RSSHub，对 GitHub Actions 更友好）
     
     Args:
         url: RSS URL
@@ -23,14 +23,24 @@ def fetch_nitter_rss(url: str, timeout: int = 10) -> Optional[feedparser.FeedPar
         feedparser 解析结果，失败返回 None
     """
     try:
+        # 添加延迟，避免限流
+        import time
+        time.sleep(1)
+        
         response = requests.get(url, timeout=timeout, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; DGIE/1.0)"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         })
+        
+        # 429 错误不重试
+        if response.status_code == 429:
+            logger.warning(f"RSS 源限流 {url}，跳过")
+            return None
+        
         response.raise_for_status()
         feed = feedparser.parse(response.content)
         return feed
     except Exception as e:
-        logger.warning(f"获取 Nitter RSS 失败 {url}: {e}")
+        logger.warning(f"获取 RSS 失败 {url}: {e}")
         return None
 
 def parse_tweet_entry(entry: feedparser.FeedParserDict, username: str) -> Optional[Dict]:
@@ -105,19 +115,14 @@ def fetch_tweets(username: str, max_items: int = 5) -> List[Dict]:
         rss_urls = settings.RSS_SOURCES.get("twitter_trump", [])
     
     if not rss_urls:
-        # 默认使用第一个 Nitter 实例
-        if settings.NITTER_INSTANCES:
-            base_url = settings.NITTER_INSTANCES[0]
-            rss_urls = [f"{base_url}/{username}/rss"]
-        else:
-            logger.warning(f"未配置 Nitter 实例，无法获取 {username} 的推文")
-            return []
+        # 默认使用 RSSHub（对 GitHub Actions 更友好）
+        rss_urls = [f"https://rsshub.app/twitter/user/{username}"]
     
     for rss_url in rss_urls:
         if len(tweets) >= max_items:
             break
         
-        feed = fetch_nitter_rss(rss_url)
+        feed = fetch_rss(rss_url)
         if not feed or not feed.entries:
             continue
         

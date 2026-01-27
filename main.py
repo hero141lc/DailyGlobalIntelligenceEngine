@@ -109,28 +109,30 @@ def process_data(items: List[Dict]) -> List[Dict]:
     valid_items = [item for item in unique_items if item.get("title") and item.get("url")]
     logger.info(f"✓ 过滤完成：{len(unique_items)} -> {len(valid_items)} 条")
     
-    # 3. 生成摘要（如果配置了 Token）
+    # 3. 生成摘要（如果配置了 GitHub Token）
     logger.info("\n[3/3] 生成中文摘要...")
     try:
         from config import settings
-        if settings.GITHUB_MODELS_API_KEY:
-            # 优先使用 Hugging Face 免费模型（支持 GitHub Token）
-            summarized_items = summarize_batch(valid_items, use_hf=True, delay=1.0)
+        if settings.GITHUB_TOKEN:
+            # 使用 GitHub 提供的模型
+            summarized_items = summarize_batch(valid_items, delay=0.5)
             logger.info(f"✓ 摘要生成完成：{len(summarized_items)} 条")
             return summarized_items
         else:
-            logger.warning("未配置 Token，跳过摘要生成，使用原始内容")
-            # 为没有摘要的项添加 summary 字段
+            logger.warning("未配置 GITHUB_TOKEN，跳过摘要生成，使用原始内容")
+            # 为没有摘要的项添加 summary 字段（使用原始内容前200字）
             for item in valid_items:
                 if "summary" not in item:
-                    item["summary"] = item.get("content", item.get("title", ""))
+                    original_content = item.get("content", item.get("title", ""))
+                    item["summary"] = original_content[:200] + ("..." if len(original_content) > 200 else "")
             return valid_items
     except Exception as e:
         logger.error(f"✗ 摘要生成失败: {e}")
-        # 即使摘要失败，也返回原始数据
+        # 即使摘要失败，也返回原始数据（使用原始内容前200字）
         for item in valid_items:
             if "summary" not in item:
-                item["summary"] = item.get("content", item.get("title", ""))
+                original_content = item.get("content", item.get("title", ""))
+                item["summary"] = original_content[:200] + ("..." if len(original_content) > 200 else "")
         return valid_items
 
 def main():

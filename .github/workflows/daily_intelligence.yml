@@ -36,15 +36,19 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           
-          # LLM API 配置（支持 GitHub Token 或 Hugging Face Token）
-          # 方式1：使用 Hugging Face Token（推荐，在 https://huggingface.co/settings/tokens 获取）
-          #        配置 secrets.HF_TOKEN
-          # 方式2：使用 GitHub Token（需要在 Hugging Face 设置中关联 GitHub 账号）
-          #        配置 secrets.GITHUB_TOKEN（GitHub Actions 自动提供，但需要授权）
-          # 代码会自动优先使用 HF_TOKEN，如果没有则使用 GITHUB_TOKEN
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # LLM API 配置（使用 GitHub 提供的模型）
+          # GitHub Actions 会自动提供 github.token，也可以手动在 Secrets 中配置 GITHUB_TOKEN
+          # 如果未配置 secrets.GITHUB_TOKEN，代码会自动使用 github.token（在 Python 中处理）
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HF_MODEL_NAME: ${{ secrets.HF_MODEL_NAME }}
+          GITHUB_MODEL_NAME: ${{ secrets.GITHUB_MODEL_NAME }}
         run: |
+          # 如果未配置 GITHUB_TOKEN secret，使用 GitHub Actions 自动提供的 token
+          if [ -z "$GITHUB_TOKEN" ]; then
+            export GITHUB_TOKEN="${{ github.token }}"
+          fi
+          # 如果未配置 GITHUB_MODEL_NAME，使用默认值
+          if [ -z "$GITHUB_MODEL_NAME" ]; then
+            export GITHUB_MODEL_NAME="gpt-4o-mini"
+          fi
           python main.py
 

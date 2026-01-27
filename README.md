@@ -83,18 +83,12 @@ cd daily-intelligence
 - Outlook/Office365：已禁用基本认证，不推荐使用（需要使用 OAuth2，过于复杂）
 - 其他邮箱：请查询对应 SMTP 设置
 
-#### 可选配置（LLM 摘要 - 免费方案）
+#### 可选配置（LLM 摘要 - 使用 GitHub 提供的模型）
 
-**推荐使用 Hugging Face 免费模型（支持 GitHub Token）：**
+- `GITHUB_TOKEN`: GitHub Token（GitHub Actions 会自动提供 `github.token`，也可以手动配置）
+- `GITHUB_MODEL_NAME`: GitHub 提供的模型名称（可选，默认：`gpt-4o-mini`）
 
-- `GITHUB_TOKEN` 或 `HF_TOKEN`: 
-  - **方式1**：使用 GitHub Token（需要在 [Hugging Face 设置](https://huggingface.co/settings/account) 中关联 GitHub 账号）
-  - **方式2**：直接使用 Hugging Face Token（推荐，在 [这里](https://huggingface.co/settings/tokens) 获取，选择 Read 权限即可）
-- `HF_MODEL_NAME`: Hugging Face 模型名称（可选，默认：`Qwen/Qwen2.5-0.5B-Instruct`）
-
-**备选方案（需付费）：**
-
-- `OPENAI_API_KEY`: OpenAI API Key（如配置，会在 Hugging Face 失败时作为备选）
+**注意**：如果不配置 `GITHUB_TOKEN`，系统会使用原始内容（不生成摘要）
 
 ### 3. 本地测试（可选）
 

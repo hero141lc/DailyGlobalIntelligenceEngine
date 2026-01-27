@@ -25,6 +25,9 @@ def send_email(html_content: str, subject: str = None, recipients: Union[str, Li
     """
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.error("未配置邮件账户信息")
+        logger.error(f"SMTP_USER: {'已配置' if settings.SMTP_USER else '未配置'}")
+        logger.error(f"SMTP_PASSWORD: {'已配置' if settings.SMTP_PASSWORD else '未配置'}")
+        logger.error("请检查 GitHub Secrets 中的 SMTP_USER 和 SMTP_PASS 是否正确配置")
         return False
     
     # 确定收件人列表
