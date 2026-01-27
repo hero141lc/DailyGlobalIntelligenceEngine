@@ -76,13 +76,15 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
             # 检查 429 错误（限流）
             if response.status_code == 429:
                 # 429 错误需要等待更长时间
-                wait_time = 10 + (2 ** attempt)  # 基础10秒 + 指数退避
+                # 尝试1: 15秒, 尝试2: 20秒, 尝试3: 25秒
+                wait_time = 15 + (5 * attempt)  # 基础15秒 + 每次增加5秒
                 logger.warning(f"GitHub Models API 限流（429），等待 {wait_time} 秒后重试（尝试 {attempt + 1}/{max_retries}）")
                 if attempt < max_retries - 1:
                     time.sleep(wait_time)
                     continue  # 直接重试，不抛出异常
                 else:
                     logger.error(f"摘要生成最终失败（限流）: {item.get('title', '')}")
+                    logger.warning("提示：GitHub Models 免费版有速率限制，建议减少并发请求或增加延迟时间")
                     return None
             
             response.raise_for_status()

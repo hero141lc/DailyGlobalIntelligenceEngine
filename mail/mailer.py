@@ -65,17 +65,45 @@ def send_email(html_content: str, subject: str = None, recipients: Union[str, Li
         else:
             logger.info(f"正在发送邮件到 {len(recipients)} 个收件人: {', '.join(recipients)}...")
         
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.starttls()  # 启用 TLS
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            # 使用 sendmail 支持多个收件人
-            server.sendmail(settings.SMTP_USER, recipients, msg.as_string())
+        # 创建 SMTP 连接（显式连接，避免上下文管理器的问题）
+        logger.debug(f"连接 SMTP 服务器 {settings.SMTP_HOST}:{settings.SMTP_PORT}...")
+        server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30)
         
-        if len(recipients) == 1:
-            logger.info(f"邮件发送成功到 {recipients[0]}")
-        else:
-            logger.info(f"邮件发送成功到 {len(recipients)} 个收件人")
-        return True
+        try:
+            # 启用调试模式（可选，用于排查问题）
+            # server.set_debuglevel(1)
+            
+            # 建立连接
+            server.connect(settings.SMTP_HOST, settings.SMTP_PORT)
+            
+            # 启用 TLS
+            logger.debug("启用 TLS...")
+            server.starttls()
+            
+            # 登录
+            logger.debug("登录 SMTP 服务器...")
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            
+            # 发送邮件（使用 sendmail 支持多个收件人）
+            logger.debug("发送邮件...")
+            server.sendmail(settings.SMTP_USER, recipients, msg.as_string())
+            
+            # 关闭连接
+            server.quit()
+        
+            if len(recipients) == 1:
+                logger.info(f"邮件发送成功到 {recipients[0]}")
+            else:
+                logger.info(f"邮件发送成功到 {len(recipients)} 个收件人")
+            return True
+            
+        except Exception as e:
+            # 确保连接被关闭
+            try:
+                server.quit()
+            except:
+                pass
+            raise  # 重新抛出异常，让下面的异常处理捕获
         
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"邮件认证失败: {e}")
@@ -103,9 +131,17 @@ def send_email(html_content: str, subject: str = None, recipients: Union[str, Li
         return False
     except smtplib.SMTPException as e:
         logger.error(f"SMTP 错误: {e}")
+        logger.error(f"SMTP 错误详情: {type(e).__name__}: {str(e)}")
+        return False
+    except ConnectionError as e:
+        logger.error(f"SMTP 连接错误: {e}")
+        logger.error(f"请检查 SMTP_HOST ({settings.SMTP_HOST}) 和 SMTP_PORT ({settings.SMTP_PORT}) 是否正确")
         return False
     except Exception as e:
         logger.error(f"发送邮件失败: {e}")
+        logger.error(f"错误类型: {type(e).__name__}")
+        import traceback
+        logger.error(f"错误详情: {traceback.format_exc()}")
         return False
 
 def send_report(html_content: str) -> bool:
