@@ -145,9 +145,13 @@ def summarize_with_huggingface(item: Dict, max_retries: int = 3) -> Optional[str
             
             # Hugging Face API 可能返回 503（模型加载中），需要等待
             if response.status_code == 503:
-                wait_time = response.json().get("estimated_time", 10)
+                try:
+                    wait_time = response.json().get("estimated_time", 10)
+                    wait_time = max(1, min(int(wait_time), 30))  # 限制在 1-30 秒之间
+                except (ValueError, TypeError, KeyError):
+                    wait_time = 10
                 logger.info(f"模型加载中，等待 {wait_time} 秒...")
-                time.sleep(min(wait_time, 30))
+                time.sleep(wait_time)
                 continue
             
             response.raise_for_status()

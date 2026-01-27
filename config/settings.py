@@ -7,7 +7,11 @@ from typing import List, Dict
 
 # 邮件配置（推荐使用 Gmail）
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")  # Gmail SMTP 服务器
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))  # Gmail SMTP 端口
+SMTP_PORT_STR = os.getenv("SMTP_PORT", "587")  # Gmail SMTP 端口
+try:
+    SMTP_PORT = int(SMTP_PORT_STR) if SMTP_PORT_STR and SMTP_PORT_STR.strip() else 587
+except (ValueError, TypeError):
+    SMTP_PORT = 587  # 如果转换失败，使用默认值
 SMTP_USER = os.getenv("SMTP_USER", "")  # Gmail 邮箱地址
 SMTP_PASSWORD = os.getenv("SMTP_PASS", "")  # Gmail 应用密码（16位，无连字符）
 
@@ -16,17 +20,19 @@ SMTP_PASSWORD = os.getenv("SMTP_PASS", "")  # Gmail 应用密码（16位，无�
 # 方式2：多个邮箱（逗号分隔）- "email1@example.com,email2@example.com"
 # 方式3：多个邮箱（JSON 数组）- '["email1@example.com","email2@example.com"]'
 RECIPIENT_EMAIL_RAW = os.getenv("EMAIL_TO", "")
-if RECIPIENT_EMAIL_RAW:
+if RECIPIENT_EMAIL_RAW and RECIPIENT_EMAIL_RAW.strip():
     # 尝试解析为列表
     import json
     try:
         # 尝试解析为 JSON 数组
         RECIPIENT_EMAIL = json.loads(RECIPIENT_EMAIL_RAW)
         if not isinstance(RECIPIENT_EMAIL, list):
-            RECIPIENT_EMAIL = [RECIPIENT_EMAIL]
-    except (json.JSONDecodeError, ValueError):
+            RECIPIENT_EMAIL = [RECIPIENT_EMAIL] if RECIPIENT_EMAIL else []
+        # 过滤空值
+        RECIPIENT_EMAIL = [email.strip() for email in RECIPIENT_EMAIL if email and str(email).strip()]
+    except (json.JSONDecodeError, ValueError, TypeError):
         # 如果不是 JSON，按逗号分隔
-        RECIPIENT_EMAIL = [email.strip() for email in RECIPIENT_EMAIL_RAW.split(",") if email.strip()]
+        RECIPIENT_EMAIL = [email.strip() for email in RECIPIENT_EMAIL_RAW.split(",") if email and email.strip()]
 else:
     RECIPIENT_EMAIL = []
 

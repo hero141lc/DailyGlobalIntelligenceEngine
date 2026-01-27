@@ -106,8 +106,12 @@ def fetch_tweets(username: str, max_items: int = 5) -> List[Dict]:
     
     if not rss_urls:
         # 默认使用第一个 Nitter 实例
-        base_url = settings.NITTER_INSTANCES[0]
-        rss_urls = [f"{base_url}/{username}/rss"]
+        if settings.NITTER_INSTANCES:
+            base_url = settings.NITTER_INSTANCES[0]
+            rss_urls = [f"{base_url}/{username}/rss"]
+        else:
+            logger.warning(f"未配置 Nitter 实例，无法获取 {username} 的推文")
+            return []
     
     for rss_url in rss_urls:
         if len(tweets) >= max_items:

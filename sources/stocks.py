@@ -3,6 +3,7 @@
 采集主要指数和大涨个股（≥7%）
 """
 import yfinance as yf
+import pandas as pd
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 
@@ -32,7 +33,9 @@ def get_index_data(symbol: str, name: str) -> Optional[Dict]:
         latest = hist.iloc[-1]
         previous = hist.iloc[-2] if len(hist) > 1 else latest
         
-        # 计算涨跌幅
+        # 计算涨跌幅（避免除零错误）
+        if previous["Close"] == 0 or pd.isna(previous["Close"]):
+            return None
         change_pct = ((latest["Close"] - previous["Close"]) / previous["Close"]) * 100
         
         return {
@@ -80,7 +83,9 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
                 latest = hist.iloc[-1]
                 previous = hist.iloc[-2]
                 
-                # 计算涨跌幅
+                # 计算涨跌幅（避免除零错误）
+                if previous["Close"] == 0 or pd.isna(previous["Close"]):
+                    continue
                 change_pct = ((latest["Close"] - previous["Close"]) / previous["Close"]) * 100
                 
                 # 只保留涨幅≥阈值的股票
