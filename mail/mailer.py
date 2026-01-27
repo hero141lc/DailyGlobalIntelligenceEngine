@@ -4,6 +4,7 @@
 支持多个收件人
 """
 import smtplib
+import socket
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List, Union
@@ -29,6 +30,16 @@ def send_email(html_content: str, subject: str = None, recipients: Union[str, Li
         logger.error(f"SMTP_PASSWORD: {'已配置' if settings.SMTP_PASSWORD else '未配置'}")
         logger.error("请检查 GitHub Secrets 中的 SMTP_USER 和 SMTP_PASS 是否正确配置")
         return False
+    
+    # 验证 SMTP_HOST 配置
+    smtp_host = settings.SMTP_HOST.strip() if settings.SMTP_HOST else "smtp.gmail.com"
+    smtp_port = settings.SMTP_PORT
+    
+    if not smtp_host:
+        logger.error("SMTP_HOST 未配置，使用默认值 smtp.gmail.com")
+        smtp_host = "smtp.gmail.com"
+    
+    logger.debug(f"SMTP 配置: {smtp_host}:{smtp_port}")
     
     # 确定收件人列表
     if recipients is None:
@@ -65,45 +76,32 @@ def send_email(html_content: str, subject: str = None, recipients: Union[str, Li
         else:
             logger.info(f"正在发送邮件到 {len(recipients)} 个收件人: {', '.join(recipients)}...")
         
-        # 创建 SMTP 连接（显式连接，避免上下文管理器的问题）
-        logger.debug(f"连接 SMTP 服务器 {settings.SMTP_HOST}:{settings.SMTP_PORT}...")
-        server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30)
+        # 创建 SMTP 连接
+        logger.info(f"连接 SMTP 服务器 {smtp_host}:{smtp_port}...")
         
-        try:
+        # 使用上下文管理器自动处理连接和关闭
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
             # 启用调试模式（可选，用于排查问题）
             # server.set_debuglevel(1)
             
-            # 建立连接
-            server.connect(settings.SMTP_HOST, settings.SMTP_PORT)
-            
             # 启用 TLS
-            logger.debug("启用 TLS...")
+            logger.info("启用 TLS...")
             server.starttls()
             
             # 登录
-            logger.debug("登录 SMTP 服务器...")
+            logger.info("登录 SMTP 服务器...")
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             
             # 发送邮件（使用 sendmail 支持多个收件人）
-            logger.debug("发送邮件...")
+            logger.info("发送邮件...")
             server.sendmail(settings.SMTP_USER, recipients, msg.as_string())
-            
-            # 关闭连接
-            server.quit()
         
-            if len(recipients) == 1:
-                logger.info(f"邮件发送成功到 {recipients[0]}")
-            else:
-                logger.info(f"邮件发送成功到 {len(recipients)} 个收件人")
-            return True
-            
-        except Exception as e:
-            # 确保连接被关闭
-            try:
-                server.quit()
-            except:
-                pass
-            raise  # 重新抛出异常，让下面的异常处理捕获
+        # 连接已自动关闭（上下文管理器）
+        if len(recipients) == 1:
+            logger.info(f"邮件发送成功到 {recipients[0]}")
+        else:
+            logger.info(f"邮件发送成功到 {len(recipients)} 个收件人")
+        return True
         
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"邮件认证失败: {e}")
@@ -129,13 +127,28 @@ def send_email(html_content: str, subject: str = None, recipients: Union[str, Li
             logger.error("   如需继续使用 Outlook，需要使用 OAuth2（复杂，不推荐）")
         
         return False
+    except (socket.gaierror, OSError) as e:
+        logger.error(f"SMTP 连接错误（DNS 解析失败）: {e}")
+        logger.error(f"当前 SMTP_HOST: '{smtp_host}'")
+        logger.error(f"当前 SMTP_PORT: {smtp_port}")
+        logger.error("")
+        logger.error("可能的原因：")
+        logger.error("1. SMTP_HOST 环境变量未配置或为空")
+        logger.error("2. SMTP_HOST 配置的主机名无效")
+        logger.error("3. GitHub Actions 网络环境无法解析该主机名")
+        logger.error("")
+        logger.error("解决方案：")
+        logger.error("1. 在 GitHub Secrets 中配置 SMTP_HOST（例如：smtp.gmail.com）")
+        logger.error("2. 如果使用 Gmail，确保 SMTP_HOST=smtp.gmail.com")
+        logger.error("3. 如果未配置 SMTP_HOST，系统会使用默认值 smtp.gmail.com")
+        return False
     except smtplib.SMTPException as e:
         logger.error(f"SMTP 错误: {e}")
         logger.error(f"SMTP 错误详情: {type(e).__name__}: {str(e)}")
         return False
     except ConnectionError as e:
         logger.error(f"SMTP 连接错误: {e}")
-        logger.error(f"请检查 SMTP_HOST ({settings.SMTP_HOST}) 和 SMTP_PORT ({settings.SMTP_PORT}) 是否正确")
+        logger.error(f"请检查 SMTP_HOST ({smtp_host}) 和 SMTP_PORT ({smtp_port}) 是否正确")
         return False
     except Exception as e:
         logger.error(f"发送邮件失败: {e}")
