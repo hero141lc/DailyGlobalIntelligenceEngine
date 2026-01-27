@@ -1,0 +1,119 @@
+"""
+邮件发送模块
+支持 SMTP 发送 HTML 邮件
+支持多个收件人
+"""
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import Optional, List, Union
+
+from config import settings
+from utils.logger import logger
+
+def send_email(html_content: str, subject: str = None, recipients: Union[str, List[str], None] = None) -> bool:
+    """
+    发送 HTML 邮件（支持多个收件人）
+    
+    Args:
+        html_content: HTML 邮件内容
+        subject: 邮件主题，默认使用日期
+        recipients: 收件人列表，如果为 None 则使用配置中的 RECIPIENT_EMAIL
+    
+    Returns:
+        发送成功返回 True，失败返回 False
+    """
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        logger.error("未配置邮件账户信息")
+        return False
+    
+    # 确定收件人列表
+    if recipients is None:
+        recipients = settings.RECIPIENT_EMAIL
+    
+    # 统一转换为列表格式
+    if isinstance(recipients, str):
+        recipients = [email.strip() for email in recipients.split(",") if email.strip()]
+    elif not isinstance(recipients, list):
+        recipients = [recipients]
+    
+    if not recipients:
+        logger.error("未配置收件邮箱")
+        return False
+    
+    if not subject:
+        from utils.time import get_today_date
+        subject = f"全球科技与金融情报速览 - {get_today_date()}"
+    
+    try:
+        # 创建邮件对象
+        msg = MIMEMultipart("alternative")
+        msg["From"] = settings.SMTP_USER
+        msg["To"] = ", ".join(recipients)  # 多个收件人用逗号分隔
+        msg["Subject"] = subject
+        
+        # 添加 HTML 内容
+        html_part = MIMEText(html_content, "html", "utf-8")
+        msg.attach(html_part)
+        
+        # 发送邮件
+        if len(recipients) == 1:
+            logger.info(f"正在发送邮件到 {recipients[0]}...")
+        else:
+            logger.info(f"正在发送邮件到 {len(recipients)} 个收件人: {', '.join(recipients)}...")
+        
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            server.starttls()  # 启用 TLS
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            # 使用 sendmail 支持多个收件人
+            server.sendmail(settings.SMTP_USER, recipients, msg.as_string())
+        
+        if len(recipients) == 1:
+            logger.info(f"邮件发送成功到 {recipients[0]}")
+        else:
+            logger.info(f"邮件发送成功到 {len(recipients)} 个收件人")
+        return True
+        
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"邮件认证失败: {e}")
+        logger.error("请检查 SMTP_USER 和 SMTP_PASSWORD 是否正确")
+        
+        # Gmail 特殊提示（推荐）
+        if "gmail.com" in settings.SMTP_HOST:
+            logger.error("")
+            logger.error("⚠️  Gmail 需要使用应用专用密码，不是账户密码！")
+            logger.error("   获取步骤：")
+            logger.error("   1. 登录 https://myaccount.google.com/security")
+            logger.error("   2. 启用两步验证（如果未启用）")
+            logger.error("   3. 进入 '应用密码' 或 'App passwords'")
+            logger.error("   4. 生成新的应用密码（选择 '邮件' 和 '其他设备'）")
+            logger.error("   5. 将生成的 16 位密码（无连字符）配置到 SMTP_PASS")
+            logger.error("   注意：应用密码是 16 位字符，不包含连字符")
+        
+        # Outlook/Office365 提示（已禁用基本认证）
+        elif "outlook.com" in settings.SMTP_HOST or "office365.com" in settings.SMTP_HOST:
+            logger.error("")
+            logger.error("⚠️  Outlook/Office365 已禁用基本认证，无法使用 SMTP 基本认证！")
+            logger.error("   建议：改用 Gmail（支持基本认证，配置更简单）")
+            logger.error("   如需继续使用 Outlook，需要使用 OAuth2（复杂，不推荐）")
+        
+        return False
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP 错误: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"发送邮件失败: {e}")
+        return False
+
+def send_report(html_content: str) -> bool:
+    """
+    发送报告邮件（便捷方法）
+    
+    Args:
+        html_content: HTML 报告内容
+    
+    Returns:
+        发送成功返回 True，失败返回 False
+    """
+    return send_email(html_content)
+

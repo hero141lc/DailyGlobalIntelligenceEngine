@@ -1,0 +1,50 @@
+name: Daily Global Intelligence Engine
+
+on:
+  schedule:
+    # UTC 00:00 (北京时间早上 8:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Daily Intelligence Engine
+        env:
+          # 邮件配置（推荐使用 Gmail）
+          # Gmail 配置：SMTP_HOST=smtp.gmail.com, SMTP_PORT=587
+          # 需要 Gmail 应用密码（16位，无连字符），不是账户密码
+          # 获取方法：https://myaccount.google.com/security → 应用密码
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          
+          # LLM API 配置（支持 GitHub Token 或 Hugging Face Token）
+          # 方式1：使用 Hugging Face Token（推荐，在 https://huggingface.co/settings/tokens 获取）
+          #        配置 secrets.HF_TOKEN
+          # 方式2：使用 GitHub Token（需要在 Hugging Face 设置中关联 GitHub 账号）
+          #        配置 secrets.GITHUB_TOKEN（GitHub Actions 自动提供，但需要授权）
+          # 代码会自动优先使用 HF_TOKEN，如果没有则使用 GITHUB_TOKEN
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_MODEL_NAME: ${{ secrets.HF_MODEL_NAME }}
+        run: |
+          python main.py
+
