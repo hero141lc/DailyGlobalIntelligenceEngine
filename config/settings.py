@@ -39,7 +39,7 @@ else:
 # LLM API 配置 - 使用 GitHub 提供的模型
 # GitHub Actions 会自动提供 GITHUB_TOKEN 环境变量（通过 github.token）
 # 也可以手动在 Secrets 中配置 GITHUB_TOKEN
-# 如果 GITHUB_TOKEN 未设置，代码会尝试使用 github.token（在 GitHub Actions 环境中）
+# 🔥 关键：必须在 workflow 中设置 permissions.models: read 才能访问 GitHub Models
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # GitHub Token
 GITHUB_MODEL_NAME = os.getenv("GITHUB_MODEL_NAME", "gpt-4o-mini")  # GitHub 提供的模型名称
 
@@ -76,7 +76,7 @@ RSS_SOURCES: Dict[str, List[str]] = {
 }
 
 # 股票配置
-# 注意：yfinance 在某些网络环境下可能无法访问，这是正常现象
+# 使用 Stooq API 获取数据（更稳定，无反爬）
 STOCK_INDICES = {
     "S&P500": "^GSPC",
     "NASDAQ": "^IXIC",

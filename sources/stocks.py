@@ -1,10 +1,11 @@
 """
 美股市场数据采集模块
 采集主要指数和大涨个股（≥7%）
-使用 Stooq 获取指数数据（更稳定），个股允许失败
+完全使用 Stooq API（无反爬，更稳定）
 """
 import requests
-import pandas as pd
+import csv
+import io
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 
@@ -35,17 +36,31 @@ def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
         response.raise_for_status()
         
         # 解析 CSV
-        lines = response.text.strip().split('\n')
+        csv_content = response.text.strip()
+        if not csv_content:
+            return None
+        
+        lines = csv_content.split('\n')
         if len(lines) < 2:
             return None
         
+        # 使用 CSV reader 解析（更可靠）
+        csv_reader = csv.reader(io.StringIO(csv_content))
+        rows = list(csv_reader)
+        
+        if len(rows) < 2:
+            return None
+        
+        # 第一行是表头，跳过
         # 获取最新两行数据
-        latest_line = lines[-1].split(',')
-        previous_line = lines[-2].split(',') if len(lines) > 2 else latest_line
+        latest_row = rows[-1]
+        previous_row = rows[-2] if len(rows) > 2 else latest_row
         
         try:
-            latest_close = float(latest_line[5])  # Close 价格
-            previous_close = float(previous_line[5])
+            # CSV 格式：Symbol,Date,Time,Open,High,Low,Close,Volume
+            # 索引：0=Symbol, 1=Date, 2=Time, 3=Open, 4=High, 5=Low, 6=Close, 7=Volume
+            latest_close = float(latest_row[6])  # Close 价格（索引 6）
+            previous_close = float(previous_row[6])
             
             if previous_close == 0:
                 return None
@@ -68,70 +83,62 @@ def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
         logger.debug(f"获取 Stooq 指数数据失败 {symbol}: {e}")
         return None
 
-def get_index_data_yfinance(symbol: str, name: str) -> Optional[Dict]:
+def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
     """
-    使用 yfinance 获取指数数据（备用方案）
+    使用 Stooq 获取个股数据
     
     Args:
-        symbol: 股票代码
-        name: 指数名称
+        symbol: 股票代码（如 AAPL）
     
     Returns:
-        指数数据字典，失败返回 None
+        股票数据字典，失败返回 None
     """
     try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="2d", timeout=10)
+        url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
         
-        if hist.empty or len(hist) == 0:
+        response = requests.get(url, timeout=10, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        response.raise_for_status()
+        
+        csv_content = response.text.strip()
+        if not csv_content:
             return None
         
-        latest = hist.iloc[-1]
-        previous = hist.iloc[-2] if len(hist) > 1 else latest
+        csv_reader = csv.reader(io.StringIO(csv_content))
+        rows = list(csv_reader)
         
-        if previous["Close"] == 0 or pd.isna(previous["Close"]):
+        if len(rows) < 2:
             return None
         
-        change_pct = ((latest["Close"] - previous["Close"]) / previous["Close"]) * 100
+        latest_row = rows[-1]
+        previous_row = rows[-2] if len(rows) > 2 else latest_row
         
-        return {
-            "category": "美股市场",
-            "title": f"{name}：{change_pct:+.2f}%",
-            "content": f"{name} 收盘 {latest['Close']:.2f}，涨跌幅 {change_pct:+.2f}%",
-            "source": "Yahoo Finance",
-            "url": f"https://finance.yahoo.com/quote/{symbol}",
-            "published_at": get_today_date(),
-        }
+        try:
+            latest_close = float(latest_row[6])
+            previous_close = float(previous_row[6])
+            
+            if previous_close == 0:
+                return None
+            
+            change_pct = ((latest_close - previous_close) / previous_close) * 100
+            
+            return {
+                "symbol": symbol,
+                "close": latest_close,
+                "change_pct": change_pct,
+            }
+        except (ValueError, IndexError):
+            return None
+            
     except Exception as e:
-        logger.debug(f"获取 yfinance 指数数据失败 {symbol}: {e}")
+        logger.debug(f"获取 Stooq 个股数据失败 {symbol}: {e}")
         return None
-
-def collect_index_data() -> List[Dict]:
-    """
-    采集主要指数数据（优先使用 Stooq，失败则尝试 yfinance）
-    
-    Returns:
-        指数数据列表
-    """
-    indices: List[Dict] = []
-    
-    for name, symbol in settings.STOCK_INDICES.items():
-        # 优先使用 Stooq
-        data = get_index_data_stooq(symbol, name)
-        if not data:
-            # Stooq 失败，尝试 yfinance
-            data = get_index_data_yfinance(symbol, name)
-        
-        if data:
-            indices.append(data)
-    
-    return indices
 
 def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
     """
     获取大涨个股（涨幅≥阈值）
-    只取前 20 大市值股票，允许失败，不阻断流程
+    只取前 20 大市值股票，使用 Stooq API，允许失败，不阻断流程
     
     Args:
         threshold: 涨幅阈值（百分比）
@@ -150,41 +157,23 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
     
     for symbol in popular_symbols:
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="2d", timeout=10)
-            
-            if hist.empty or len(hist) < 2:
+            stock_data = get_stock_data_stooq(symbol)
+            if not stock_data:
                 continue
             
-            latest = hist.iloc[-1]
-            previous = hist.iloc[-2]
-            
-            # 计算涨跌幅（避免除零错误）
-            if previous["Close"] == 0 or pd.isna(previous["Close"]):
-                continue
-            change_pct = ((latest["Close"] - previous["Close"]) / previous["Close"]) * 100
+            change_pct = stock_data["change_pct"]
             
             # 只保留涨幅≥阈值的股票
             if change_pct >= threshold:
-                # 尝试获取新闻标题作为原因
+                # Stooq 不提供新闻，使用通用原因
                 reason = "市场表现强劲"
-                try:
-                    news = ticker.news
-                    if news and len(news) > 0:
-                        latest_news = news[0]
-                        reason = latest_news.get("title", reason)
-                except Exception:
-                    pass
-                
-                stock_name = ticker.info.get("longName", symbol)
                 
                 surge_stocks.append({
                     "category": "大涨个股",
-                    "title": f"{symbol} ({stock_name}) +{change_pct:.2f}%",
-                    "content": f"{stock_name} ({symbol}) 涨幅 {change_pct:+.2f}%，原因：{reason}",
-                    "source": "Yahoo Finance",
-                    "url": f"https://finance.yahoo.com/quote/{symbol}",
+                    "title": f"{symbol} +{change_pct:.2f}%",
+                    "content": f"{symbol} 涨幅 {change_pct:+.2f}%，原因：{reason}",
+                    "source": "Stooq",
+                    "url": f"https://stooq.com/q/?s={symbol}",
                     "published_at": get_today_date(),
                     "change_pct": change_pct,
                 })
@@ -199,6 +188,22 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
     logger.info(f"发现 {len(surge_stocks)} 只大涨个股（≥{threshold}%）")
     return surge_stocks
 
+def collect_index_data() -> List[Dict]:
+    """
+    采集主要指数数据（使用 Stooq）
+    
+    Returns:
+        指数数据列表
+    """
+    indices: List[Dict] = []
+    
+    for name, symbol in settings.STOCK_INDICES.items():
+        data = get_index_data_stooq(symbol, name)
+        if data:
+            indices.append(data)
+    
+    return indices
+
 def collect_all() -> List[Dict]:
     """
     采集所有美股市场数据
@@ -212,7 +217,7 @@ def collect_all() -> List[Dict]:
     try:
         indices = collect_index_data()
         all_data.extend(indices)
-        logger.info(f"成功获取 {len(indices)} 个指数数据")
+        logger.info(f"成功获取 {len(indices)} 个指数数据（Stooq）")
     except Exception as e:
         logger.warning(f"采集指数数据失败: {e}（不影响整体流程）")
     
@@ -220,7 +225,7 @@ def collect_all() -> List[Dict]:
     try:
         surge_stocks = get_surge_stocks(settings.STOCK_SURGE_THRESHOLD)
         all_data.extend(surge_stocks)
-        logger.info(f"成功获取 {len(surge_stocks)} 只大涨个股")
+        logger.info(f"成功获取 {len(surge_stocks)} 只大涨个股（Stooq）")
     except Exception as e:
         logger.warning(f"采集大涨个股失败: {e}（不影响整体流程）")
     

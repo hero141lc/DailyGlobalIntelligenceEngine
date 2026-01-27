@@ -42,16 +42,20 @@
 - 单个数据源失败不会影响整体运行
 - 系统会继续尝试其他数据源
 
-## 4. yfinance 股票数据获取失败
+## 4. 股票数据获取失败（已解决：改用 Stooq）
 
-**症状**：所有股票数据获取失败，显示 "Expecting value: line 1 column 1"
+**状态**：✅ 已解决
 
-**原因**：
-- yfinance API 限制
-- 网络连接问题
-- API 端点变更
+**历史症状**：
+- 所有股票数据获取失败，显示 "Expecting value: line 1 column 1"
+- yfinance API 限制导致无法获取数据
 
 **解决方案**：
+- ✅ 完全移除 yfinance，改用 Stooq API
+- ✅ Stooq 更稳定，无反爬限制，对 GitHub Actions 友好
+- ✅ 指数和个股数据都使用 Stooq API
+
+**当前状态**：
 - 这是正常现象，代码已处理
 - 股票数据获取失败不会影响其他数据采集
 - 系统会继续运行并发送其他数据

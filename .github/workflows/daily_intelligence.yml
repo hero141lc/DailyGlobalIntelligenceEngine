@@ -10,6 +10,11 @@ jobs:
   generate-report:
     runs-on: ubuntu-latest
     
+    # 🔥 关键：必须添加 permissions 才能访问 GitHub Models
+    permissions:
+      contents: read
+      models: read
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,10 +42,11 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           
           # LLM API 配置（使用 GitHub 提供的模型）
-          # GitHub Actions 会自动提供 github.token，也可以手动在 Secrets 中配置 GITHUB_TOKEN
-          # 如果未配置 secrets.GITHUB_TOKEN，代码会自动使用 github.token（在 Python 中处理）
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_MODEL_NAME: ${{ secrets.GITHUB_MODEL_NAME }}
+          # GitHub Actions 会自动提供 github.token（通过 permissions.models: read）
+          # 也可以手动在 Secrets 中配置 GITHUB_TOKEN
+          # 🔥 关键：必须设置 permissions.models: read 才能访问 GitHub Models
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN || github.token }}
+          GITHUB_MODEL_NAME: ${{ secrets.GITHUB_MODEL_NAME || 'gpt-4o-mini' }}
         run: |
           # 如果未配置 GITHUB_TOKEN secret，使用 GitHub Actions 自动提供的 token
           if [ -z "$GITHUB_TOKEN" ]; then
@@ -51,4 +57,3 @@ jobs:
             export GITHUB_MODEL_NAME="gpt-4o-mini"
           fi
           python main.py
-

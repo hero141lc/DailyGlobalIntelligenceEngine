@@ -22,7 +22,12 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
     """
     github_token = settings.GITHUB_TOKEN
     if not github_token:
-        logger.warning("未配置 GITHUB_TOKEN，跳过摘要生成")
+        logger.warning("未配置 GITHUB_TOKEN，跳过摘要生成，使用原始内容")
+        return None
+    
+    # 验证 token 格式（应该是非空字符串）
+    if not isinstance(github_token, str) or len(github_token.strip()) == 0:
+        logger.warning("GITHUB_TOKEN 格式无效，跳过摘要生成")
         return None
     
     # GitHub Models API 端点（通过 Azure 提供）
@@ -62,6 +67,12 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=data, timeout=30)
+            
+            # 检查 401 错误（认证失败）
+            if response.status_code == 401:
+                logger.error(f"GitHub Models API 认证失败（401）：请检查 GITHUB_TOKEN 是否正确，并确保 workflow 中设置了 permissions.models: read")
+                return None
+            
             response.raise_for_status()
             result = response.json()
             
@@ -69,13 +80,23 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
             summary = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
             
             if summary:
+                logger.debug(f"摘要生成成功（模型：{settings.GITHUB_MODEL_NAME}）")
                 return summary
             else:
                 logger.warning(f"摘要生成返回空结果: {item.get('title', '')}")
                 return None
                 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"摘要生成失败（尝试 {attempt + 1}/{max_retries}）: {e}")
+            # 401 错误已经在上面处理，这里处理其他 HTTP 错误
+            if hasattr(e, 'response') and e.response is not None:
+                status_code = e.response.status_code
+                if status_code == 401:
+                    logger.error(f"GitHub Models API 认证失败（401）：请检查 GITHUB_TOKEN 和 workflow permissions")
+                    return None
+                logger.warning(f"摘要生成失败（HTTP {status_code}，尝试 {attempt + 1}/{max_retries}）: {e}")
+            else:
+                logger.warning(f"摘要生成失败（尝试 {attempt + 1}/{max_retries}）: {e}")
+            
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)  # 指数退避
             else:
