@@ -52,7 +52,7 @@ WEB_SOURCES: Dict[str, List[str]] = {
         "https://xcancel.com/elonmusk/with_replies",
     ],
     "twitter_trump": [
-        "https://xcancel.com/realDonaldTrump/with_replies",
+        "https://nitter.tiekoetter.com/realDonaldTrump/with_replies",
     ],
 }
 

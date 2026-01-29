@@ -167,7 +167,7 @@ def build_html_report(items: List[Dict], report_summary: str = None) -> str:
     
     Args:
         items: 所有数据项列表
-        report_summary: 可选，报告末尾的「今日总结」一段话
+        report_summary: 可选，报告最前面的「今日总结与展望」长段
     
     Returns:
         完整的 HTML 邮件内容
@@ -177,13 +177,13 @@ def build_html_report(items: List[Dict], report_summary: str = None) -> str:
     # 按类别分组
     grouped = group_by_category(items)
     
-    # 总结段落（在页脚前）
+    # 总结段落（放在标题后、正文最前面）
     summary_block = ""
     if report_summary and report_summary.strip():
         summary_block = f"""
-            <div style="margin-top: 24px; margin-bottom: 20px; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #3498db; border-radius: 4px;">
-                <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 16px;">【今日总结】</h3>
-                <p style="margin: 0; color: #34495e; line-height: 1.6; font-size: 14px;">{report_summary.strip()}</p>
+            <div style="margin-bottom: 28px; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #3498db; border-radius: 4px;">
+                <h3 style="color: #2c3e50; margin: 0 0 12px 0; font-size: 16px;">【今日总结与展望】</h3>
+                <p style="margin: 0; color: #34495e; line-height: 1.7; font-size: 14px; white-space: pre-line;">{report_summary.strip()}</p>
             </div>
         """
     
@@ -202,6 +202,8 @@ def build_html_report(items: List[Dict], report_summary: str = None) -> str:
                 📌 全球科技与金融情报速览（{today}）
             </h1>
     """
+    html += summary_block
+    html += "\n    "
     
     # 按顺序输出各个板块
     for category in CATEGORY_ORDER:
@@ -221,7 +223,6 @@ def build_html_report(items: List[Dict], report_summary: str = None) -> str:
         if category not in CATEGORY_ORDER:
             html += format_category_section(category, category_items)
     
-    html += summary_block
     html += """
             <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1; text-align: center; color: #95a5a6; font-size: 12px;">
                 <p>本报告由 Daily Global Intelligence Engine 自动生成</p>
@@ -240,7 +241,7 @@ def build_text_report(items: List[Dict], report_summary: str = None) -> str:
     
     Args:
         items: 所有数据项列表
-        report_summary: 可选，报告末尾的「今日总结」一段话
+        report_summary: 可选，报告最前面的「今日总结与展望」长段
     
     Returns:
         纯文本报告内容
@@ -250,6 +251,11 @@ def build_text_report(items: List[Dict], report_summary: str = None) -> str:
     
     text = f"📌 全球科技与金融情报速览（{today}）\n\n"
     text += "=" * 50 + "\n\n"
+    if report_summary and report_summary.strip():
+        text += "【今日总结与展望】\n"
+        text += "-" * 30 + "\n"
+        text += report_summary.strip() + "\n\n"
+        text += "=" * 50 + "\n\n"
     
     for category in CATEGORY_ORDER:
         if category in grouped and grouped[category]:
@@ -266,11 +272,6 @@ def build_text_report(items: List[Dict], report_summary: str = None) -> str:
                 text += f"  （来源：{source}）\n\n"
             
             text += "\n"
-    
-    if report_summary and report_summary.strip():
-        text += "\n【今日总结】\n"
-        text += "-" * 30 + "\n"
-        text += report_summary.strip() + "\n\n"
     
     text += "\n" + "=" * 50 + "\n"
     text += "本报告由 Daily Global Intelligence Engine 自动生成\n"

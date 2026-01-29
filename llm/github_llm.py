@@ -288,7 +288,7 @@ def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
 
 def generate_report_summary(items: List[Dict]) -> Optional[str]:
     """
-    根据当日所有条目生成一段报告总结（一段话），用于放在报告末尾。
+    根据当日所有条目生成一长段报告总结（含今日要点与展望预测），用于放在报告最前面。
     """
     if not items:
         return None
@@ -301,21 +301,22 @@ def generate_report_summary(items: List[Dict]) -> Optional[str]:
         cat = item.get("category", "")
         parts.append(f"[{i}] [{cat}] {title} | {summary}")
     block = "\n".join(parts)
-    prompt = f"""你是一位全球科技与金融情报分析师。根据以下今日情报条目，写一段简短的「今日总结」（一段话，约 150 字以内）。
+    prompt = f"""你是一位全球科技与金融情报分析师。根据以下今日情报条目，写一长段「今日总结与展望」（放在日报最前面，读者会先读这段）。
 
 要求：
-1. 中文
-2. 概括今日要点：商业航天/星链、美联储、股市、能源、黄金、石油、军事、AI、政要动态等
-3. 客观、不猜测，只基于给出的条目
-4. 直接输出总结段落，不要标题、不要列表、不要「总结：」等前缀
+1. 中文，整体为一长串连贯段落（不要分小节标题，不要列表符号）。
+2. 总结部分（前半）：系统概括今日要点，涵盖商业航天/星链、美联储、股市、能源、黄金、石油、军事、AI、政要动态等，按重要性组织，信息密度高。
+3. 预测部分（后半）：基于今日情报，对接下来几日或一周内的可能动向做简明展望（如政策、市场、地缘、技术突破等），标注为基于现有信息的合理推断即可。
+4. 总字数约 500～800 字，不要过短；可多句成段，保持可读性。
+5. 直接输出整段文字，不要「总结：」「预测：」等小标题，不要编号列表。
 
 今日条目：
 {block}
 
-请直接输出一段总结："""
+请直接输出一长段总结与展望（一段或数段连续文字）："""
     messages = [
-        {"role": "system", "content": "你擅长写简洁的每日情报总结段落。"},
+        {"role": "system", "content": "你擅长写详实的每日情报总结，并基于情报给出简明展望与预测。"},
         {"role": "user", "content": prompt},
     ]
-    summary_cap = getattr(settings, "LLM_MAX_TOKENS", 2000) or 2000
-    return _call_github_models(messages, max_tokens=min(summary_cap, 2000))
+    summary_cap = getattr(settings, "LLM_MAX_TOKENS", 12000) or 12000
+    return _call_github_models(messages, max_tokens=min(summary_cap, 3500))
