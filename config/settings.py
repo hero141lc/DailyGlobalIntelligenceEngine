@@ -49,10 +49,10 @@ NITTER_INSTANCES: List[str] = []
 # 网页消息来源（非 RSS，仿真请求头 + 独立线程，60 秒间隔）
 WEB_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
-        "https://farside.link/nitter/elonmusk/with_replies",
+        "https://xcancel.com/elonmusk/with_replies",
     ],
     "twitter_trump": [
-        "https://farside.link/nitter/realDonaldTrump/with_replies",
+        "https://nitter.tiekoetter.com/realDonaldTrump/with_replies",
     ],
 }
 # 备忘 https://xcancel.com/elonmusk/with_replies
