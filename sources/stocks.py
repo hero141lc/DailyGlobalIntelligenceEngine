@@ -47,38 +47,23 @@ def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
                     raise
         if not response:
             return None
-        # 解析 CSV
+        # 解析 CSV（Stooq 休市时可能只有表头+1 行，用该行作最新价，涨跌 0%）
         csv_content = response.text.strip()
         if not csv_content:
-            return None
-        
-        lines = csv_content.split('\n')
-        if len(lines) < 2:
-            return None
-        
-        # 使用 CSV reader 解析（更可靠）
+            return _get_index_fallback_yahoo(symbol, name)
         csv_reader = csv.reader(io.StringIO(csv_content))
         rows = list(csv_reader)
-        
         if len(rows) < 2:
-            return None
-        
-        # 第一行是表头，跳过
-        # 获取最新两行数据
+            return _get_index_fallback_yahoo(symbol, name)
         latest_row = rows[-1]
         previous_row = rows[-2] if len(rows) > 2 else latest_row
-        
         try:
-            # CSV 格式：Symbol,Date,Time,Open,High,Low,Close,Volume
-            # 索引：0=Symbol, 1=Date, 2=Time, 3=Open, 4=High, 5=Low, 6=Close, 7=Volume
-            latest_close = float(latest_row[6])  # Close 价格（索引 6）
+            # CSV：Symbol,Date,Time,Open,High,Low,Close,Volume
+            latest_close = float(latest_row[6])
             previous_close = float(previous_row[6])
-            
             if previous_close == 0:
-                return None
-            
+                return _get_index_fallback_yahoo(symbol, name)
             change_pct = ((latest_close - previous_close) / previous_close) * 100
-            
             return {
                 "category": "美股市场",
                 "title": f"{name}：{change_pct:+.2f}%",
@@ -89,10 +74,38 @@ def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
             }
         except (ValueError, IndexError) as e:
             logger.debug(f"解析 Stooq 数据失败 {symbol}: {e}")
-            return None
-            
+            return _get_index_fallback_yahoo(symbol, name)
     except Exception as e:
         logger.debug(f"获取 Stooq 指数数据失败 {symbol}: {e}")
+        return _get_index_fallback_yahoo(symbol, name)
+
+
+def _get_index_fallback_yahoo(symbol: str, name: str) -> Optional[Dict]:
+    """Stooq 无数据时用 Yahoo 取指数（仅指数，无个股）。"""
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="5d")
+        if hist is None or hist.empty or len(hist) < 2:
+            return None
+        latest = hist.iloc[-1]
+        prev = hist.iloc[-2]
+        close = float(latest["Close"])
+        prev_close = float(prev["Close"])
+        if prev_close == 0:
+            return None
+        change_pct = ((close - prev_close) / prev_close) * 100
+        stooq_symbol = symbol.replace("^", "")
+        return {
+            "category": "美股市场",
+            "title": f"{name}：{change_pct:+.2f}%",
+            "content": f"{name} 收盘 {close:.2f}，涨跌幅 {change_pct:+.2f}%",
+            "source": "Yahoo Finance",
+            "url": f"https://stooq.com/q/?s={stooq_symbol}",
+            "published_at": get_today_date(),
+        }
+    except Exception as e:
+        logger.debug(f"Yahoo 指数回退失败 {symbol}: {e}")
         return None
 
 def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
@@ -131,19 +144,14 @@ def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
         
         if len(rows) < 2:
             return None
-        
         latest_row = rows[-1]
         previous_row = rows[-2] if len(rows) > 2 else latest_row
-        
         try:
             latest_close = float(latest_row[6])
             previous_close = float(previous_row[6])
-            
             if previous_close == 0:
                 return None
-            
             change_pct = ((latest_close - previous_close) / previous_close) * 100
-            
             return {
                 "symbol": symbol,
                 "close": latest_close,
@@ -151,7 +159,6 @@ def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
             }
         except (ValueError, IndexError):
             return None
-            
     except Exception as e:
         logger.debug(f"获取 Stooq 个股数据失败 {symbol}: {e}")
         return None

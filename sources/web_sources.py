@@ -1,7 +1,9 @@
 """
 网页消息来源采集模块
 非 RSS 的网页时间线（如 xcancel），使用仿真请求头，在独立线程中按间隔请求。
+智能网关（如 farside）会 302 或 meta refresh 跳转，需跟随跳转到底再解析。
 """
+import re
 import threading
 import time
 from typing import List, Dict, Optional
@@ -17,6 +19,8 @@ from utils.time import format_date_for_display
 
 # 每个来源最多取几条
 MAX_ITEMS_PER_PAGE = 10
+# 智能网关 meta refresh 最多跟随次数
+MAX_REDIRECT_HOPS = 8
 
 
 def _get_headers() -> Dict[str, str]:
@@ -24,9 +28,33 @@ def _get_headers() -> Dict[str, str]:
     return dict(getattr(settings, "WEB_REQUEST_HEADERS", {}) or {})
 
 
-def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
+def _extract_meta_refresh_url(html: str, current_url: str) -> Optional[str]:
     """
-    用仿真请求头抓取网页 HTML；失败时按配置重试（默认 5 次，适配智能网关不稳定）。
+    从 HTML 中解析 meta http-equiv="refresh" 的目标 URL。
+    智能网关常用 meta refresh 做二次跳转，requests 不会自动跟随。
+    """
+    if not html or not current_url:
+        return None
+    # content 形如 "0; url=https://..." 或 "0;URL=https://..."
+    m = re.search(
+        r'<meta\s+http-equiv=["\']?refresh["\']?\s+content=["\']?\d+\s*;\s*url=([^"\'>\s]+)',
+        html,
+        re.I,
+    )
+    if m:
+        target = m.group(1).strip()
+        if target.startswith("http://") or target.startswith("https://"):
+            return target
+        return urljoin(current_url, target)
+    return None
+
+
+def fetch_page(url: str, timeout: int = 25) -> Optional[str]:
+    """
+    用仿真请求头抓取网页 HTML；
+    1) 使用 Session 跟随 HTTP 302 跳转到底；
+    2) 若响应是 HTML 且含 meta refresh，继续请求目标 URL 直至无跳转或达到 MAX_REDIRECT_HOPS；
+    3) 失败时按配置重试（默认 5 次）。
     """
     headers = _get_headers()
     if not headers:
@@ -39,9 +67,31 @@ def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
     last_error = None
     for attempt in range(1, retries + 1):
         try:
-            resp = requests.get(url, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            return resp.text
+            with requests.Session() as session:
+                session.headers.update(headers)
+                session.max_redirects = 15
+                current = url
+                html = None
+                for hop in range(MAX_REDIRECT_HOPS + 1):
+                    resp = session.get(current, timeout=timeout, allow_redirects=True)
+                    resp.raise_for_status()
+                    html = resp.text
+                    if not html or len(html) < 100:
+                        break
+                    # Session 已跟完 302，resp.url 为当前页；再检查是否还有 meta refresh 需跟随
+                    next_url = _extract_meta_refresh_url(html, resp.url)
+                    if not next_url:
+                        break
+                    try:
+                        next_full = urljoin(resp.url, next_url) if next_url.startswith("/") else next_url
+                    except Exception:
+                        next_full = next_url
+                    if next_full == resp.url:
+                        break
+                    current = next_full
+                    if hop < MAX_REDIRECT_HOPS:
+                        time.sleep(1)
+                return html
         except Exception as e:
             last_error = e
             if attempt < retries:

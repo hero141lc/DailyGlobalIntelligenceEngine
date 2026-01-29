@@ -39,6 +39,7 @@ def fetch_rss(url: str, timeout: int = 15, max_retries: int = 3) -> Optional[fee
 
 
 def _source_name_from_url(url: str) -> str:
+    """按 URL 返回简短来源名，便于报告展示；一个不行就用下一个源时仍能区分。"""
     if not url:
         return "RSS"
     url_lower = url.lower()
@@ -48,8 +49,48 @@ def _source_name_from_url(url: str) -> str:
         return "MarketWatch"
     if "seekingalpha" in url_lower:
         return "Seeking Alpha"
+    if "yahoo" in url_lower or "finance.yahoo" in url_lower:
+        return "Yahoo Finance"
     if "sec.gov" in url_lower:
         return "SEC"
+    if "investing.com" in url_lower:
+        return "Investing.com"
+    if "bbci.co.uk" in url_lower or "bbc." in url_lower:
+        return "BBC"
+    if "defenseone" in url_lower:
+        return "Defense One"
+    if "rigzone" in url_lower:
+        return "Rigzone"
+    if "world-nuclear" in url_lower:
+        return "WNN"
+    if "wired.com" in url_lower:
+        return "Wired"
+    if "theverge" in url_lower:
+        return "The Verge"
+    if "arstechnica" in url_lower:
+        return "Ars Technica"
+    if "space.com" in url_lower:
+        return "Space.com"
+    if "nasaspaceflight" in url_lower:
+        return "NASASpaceFlight"
+    if "spacenews" in url_lower:
+        return "SpaceNews"
+    if "bullionvault" in url_lower:
+        return "BullionVault"
+    if "mining.com" in url_lower:
+        return "Mining.com"
+    if "oilprice" in url_lower:
+        return "OilPrice"
+    if "eia.gov" in url_lower:
+        return "EIA"
+    if "federalreserve" in url_lower:
+        return "Federal Reserve"
+    if "techcrunch" in url_lower:
+        return "TechCrunch"
+    if "venturebeat" in url_lower:
+        return "VentureBeat"
+    if "hnrss" in url_lower:
+        return "HN"
     return "RSS"
 
 

@@ -13,6 +13,12 @@ from utils.logger import logger
 from utils.time import is_today, is_today_or_yesterday, format_date_for_display, parse_date
 from utils.source_from_entry import get_entry_source
 
+try:
+    from sources.rss_extra import _source_name_from_url
+except Exception:
+    def _source_name_from_url(url: str) -> str:
+        return "RSS"
+
 # 各板块关键词与类别
 _CATEGORY_CONFIG = {
     "gold": {
@@ -97,7 +103,7 @@ def _collect_key(key: str) -> List[Dict]:
         feed = fetch_rss(rss_url)
         if not feed or not feed.entries:
             continue
-        feed_source = "Google News"
+        feed_source = _source_name_from_url(rss_url)
         for entry in feed.entries[:settings.MAX_ITEMS_PER_SOURCE]:
             source_name = get_entry_source(entry, rss_url, feed_source)
             item = _parse_entry(entry, source_name, category, keywords)

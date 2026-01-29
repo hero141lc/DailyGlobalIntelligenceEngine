@@ -75,53 +75,67 @@ WEB_REQUEST_HEADERS: Dict[str, str] = {
 WEB_REQUEST_INTERVAL = 1  # 秒（网页来源请求间隔）
 WEB_REQUEST_RETRIES = 5   # 网页来源（推特/智能网关）请求失败时默认重试次数
 
-# RSS 源配置（参考 Gemini 优化：美股深度、SEC、市场情绪；Nitter 已弃用，用 Google News / 专业站）
+# RSS 源配置：每类多源，顺序尝试，一个不行就用下一个
 RSS_SOURCES: Dict[str, List[str]] = {
-    # 能源（EIA + OilPrice.com）
+    # 能源（政府/行业站优先，再 Google）
     "energy": [
         "https://www.eia.gov/rss/todayinenergy.xml",
         "https://oilprice.com/rss/main",
+        "https://www.rigzone.com/news/rss/",
+        "https://www.world-nuclear-news.org/rss.aspx",
         "https://news.google.com/rss/search?q=energy+power+electricity+price&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 科技与 AI（TechCrunch + VentureBeat + HN 高分帖）
+    # 科技与 AI（多站 + HN）
     "ai": [
         "https://techcrunch.com/tag/artificial-intelligence/feed/",
         "https://venturebeat.com/category/ai/feed/",
+        "https://www.wired.com/feed/rss",
+        "https://www.theverge.com/rss/index.xml",
+        "https://arstechnica.com/feed/",
         "https://hnrss.org/frontpage?points=100",
     ],
-    # 商业航天（SpaceNews + Google News）
+    # 商业航天（多站 + Google）
     "space": [
         "https://spacenews.com/feed/",
+        "https://www.space.com/feeds/all",
+        "https://www.nasaspaceflight.com/feed/",
         "https://news.google.com/rss/search?q=SpaceX+Starlink+launch&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 宏观经济与美联储（Fed 官方 + CNBC Top News + Google News）
+    # 美联储/宏观（官方 + 财经站 + Google）
     "fed": [
         "https://www.federalreserve.gov/feeds/press_all.xml",
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://www.investing.com/rss/news_285.rss",
         "https://news.google.com/rss/search?q=Federal+Reserve+FOMC+interest+rate&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 黄金（Google News 为主；Kitco 旧 RSS 已 404 已移除）
+    # 黄金（行业站 + Google）
     "gold": [
-        "https://news.google.com/rss/search?q=gold+price+precious+metal&hl=en-US&gl=US&ceid=US:en",
         "https://www.mining.com/feed/",
+        "https://www.bullionvault.com/gold-news/rss.xml",
+        "https://news.google.com/rss/search?q=gold+price+precious+metal&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 石油（OilPrice + Google News）
+    # 石油（行业站 + Google）
     "oil": [
         "https://oilprice.com/rss/main",
+        "https://www.rigzone.com/news/rss/",
         "https://news.google.com/rss/search?q=oil+crude+WTI+Brent&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 军事（Google News + Reuters World）
+    # 军事（多站 + Google；避免 Reuters 在 Actions 中 DNS 不可达）
     "military": [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.defenseone.com/rss/",
         "https://news.google.com/rss/search?q=military+defense+Pentagon+Ukraine&hl=en-US&gl=US&ceid=US:en",
-        "https://feeds.reuters.com/reuters/worldNews",
+        "https://news.google.com/rss/search?q=Ukraine+NATO+army+defense+war&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 美股深度（CNBC Finance、MarketWatch、Seeking Alpha）
+    # 美股快讯（多财经站，一个不行用下一个）
     "stocks": [
         "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
         "http://feeds.marketwatch.com/marketwatch/topstories/",
         "https://seekingalpha.com/market_currents.xml",
+        "https://finance.yahoo.com/rss/topstories",
+        "https://news.google.com/rss/search?q=stock+market+US+NYSE+NASDAQ&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 特斯拉/马斯克 专属 SEC 监管文件
+    # SEC 监管（特斯拉等，可再加其他 CIK）
     "sec_filings": [
         "https://data.sec.gov/rss?cik=1318605&type=&exclude=true&count=40",
     ],

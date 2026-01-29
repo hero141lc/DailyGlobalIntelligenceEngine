@@ -11,6 +11,12 @@ from config import settings
 from utils.logger import logger
 from utils.time import is_today, format_date_for_display, parse_date
 
+try:
+    from sources.rss_extra import _source_name_from_url
+except Exception:
+    def _source_name_from_url(url: str) -> str:
+        return "RSS"
+
 def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict]:
     """
     获取 RSS 源
@@ -191,11 +197,7 @@ def collect_ai_news() -> List[Dict]:
         if not feed or not feed.entries:
             continue
         
-        # 确定数据源名称
-        source_name = "TechCrunch"
-        if "techcrunch" in rss_url:
-            source_name = "TechCrunch"
-        
+        source_name = _source_name_from_url(rss_url)
         for entry in feed.entries[:settings.MAX_ITEMS_PER_SOURCE]:
             item = parse_entry(entry, source_name)
             if item:
