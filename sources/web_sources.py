@@ -26,7 +26,7 @@ def _get_headers() -> Dict[str, str]:
 
 def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
     """
-    用仿真请求头抓取网页 HTML。
+    用仿真请求头抓取网页 HTML；失败时按配置重试（默认 5 次，适配智能网关不稳定）。
     """
     headers = _get_headers()
     if not headers:
@@ -35,13 +35,22 @@ def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
-    try:
-        resp = requests.get(url, headers=headers, timeout=timeout)
-        resp.raise_for_status()
-        return resp.text
-    except Exception as e:
-        logger.warning(f"网页抓取失败 {url}: {e}")
-        return None
+    retries = int(getattr(settings, "WEB_REQUEST_RETRIES", 5) or 5)
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                wait = min(3 * attempt, 15)
+                logger.warning(f"网页抓取失败 {url} (第 {attempt}/{retries} 次): {e}，{wait}s 后重试")
+                time.sleep(wait)
+            else:
+                logger.warning(f"网页抓取失败 {url} (已重试 {retries} 次): {e}")
+    return None
 
 
 def _category_and_source(key: str) -> tuple:

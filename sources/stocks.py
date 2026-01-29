@@ -3,6 +3,7 @@
 采集主要指数和大涨个股（≥7%）
 完全使用 Stooq API（无反爬，更稳定）
 """
+import time
 import requests
 import csv
 import io
@@ -12,6 +13,8 @@ from datetime import datetime, timezone
 from config import settings
 from utils.logger import logger
 from utils.time import get_today_date
+
+STOOQ_RETRIES = 3  # Stooq 请求失败时重试次数
 
 def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
     """
@@ -29,12 +32,21 @@ def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
         # 格式：https://stooq.com/q/l/?s=^GSPC&f=sd2t2ohlcv&h&e=csv
         stooq_symbol = symbol.replace("^", "")  # 去掉 ^ 符号
         url = f"https://stooq.com/q/l/?s={stooq_symbol}&f=sd2t2ohlcv&h&e=csv"
-        
-        response = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        response.raise_for_status()
-        
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = None
+        for attempt in range(1, STOOQ_RETRIES + 1):
+            try:
+                response = requests.get(url, timeout=15, headers=headers)
+                response.raise_for_status()
+                break
+            except Exception as e:
+                if attempt < STOOQ_RETRIES:
+                    time.sleep(2 * attempt)
+                    logger.warning(f"Stooq 指数请求失败 {symbol} (第 {attempt}/{STOOQ_RETRIES} 次): {e}，重试中")
+                else:
+                    raise
+        if not response:
+            return None
         # 解析 CSV
         csv_content = response.text.strip()
         if not csv_content:
@@ -95,12 +107,21 @@ def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
     """
     try:
         url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
-        
-        response = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        response.raise_for_status()
-        
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        response = None
+        for attempt in range(1, STOOQ_RETRIES + 1):
+            try:
+                response = requests.get(url, timeout=15, headers=headers)
+                response.raise_for_status()
+                break
+            except Exception as e:
+                if attempt < STOOQ_RETRIES:
+                    time.sleep(2 * attempt)
+                    logger.warning(f"Stooq 个股请求失败 {symbol} (第 {attempt}/{STOOQ_RETRIES} 次): {e}，重试中")
+                else:
+                    raise
+        if not response:
+            return None
         csv_content = response.text.strip()
         if not csv_content:
             return None

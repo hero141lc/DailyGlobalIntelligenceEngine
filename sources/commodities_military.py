@@ -10,14 +10,14 @@ from datetime import datetime, timezone
 
 from config import settings
 from utils.logger import logger
-from utils.time import is_today, format_date_for_display, parse_date
+from utils.time import is_today, is_today_or_yesterday, format_date_for_display, parse_date
 from utils.source_from_entry import get_entry_source
 
 # 各板块关键词与类别
 _CATEGORY_CONFIG = {
     "gold": {
         "category": "黄金",
-        "keywords": ["gold", "precious metal", "bullion", "黄金", "金价", "贵金属"],
+        "keywords": ["gold", "precious metal", "bullion", "黄金", "金价", "贵金属", "mining", "copper"],
     },
     "oil": {
         "category": "石油",
@@ -57,8 +57,13 @@ def _parse_entry(
         link = entry.get("link", "")
         published = entry.get("published", "")
         summary = entry.get("summary", "").strip()
-        if not is_today(published):
-            return None
+        # 黄金用「今天」；石油/军事用「今天或昨天」以减少时区导致的 0 条
+        if category == "黄金":
+            if not is_today(published):
+                return None
+        else:
+            if not is_today_or_yesterday(published):
+                return None
         title_lower = title.lower()
         content_lower = (summary if summary else title).lower()
         if not any(kw in title_lower or kw in content_lower for kw in keywords):

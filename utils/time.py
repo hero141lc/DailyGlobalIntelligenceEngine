@@ -70,6 +70,24 @@ def is_today(date_str: str) -> bool:
     today = datetime.now(timezone.utc).date()
     return parsed.date() == today
 
+
+def is_today_or_yesterday(date_str: str) -> bool:
+    """
+    判断日期字符串是否为今天或昨天（用于石油/军事等 RSS 时区差异时多收一些条目）。
+    """
+    parsed = parse_date(date_str)
+    if not parsed:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    yesterday = (now - timedelta(days=1)).date()
+    return parsed.date() in (today, yesterday)
+
+
 def format_date_for_display(dt: datetime) -> str:
     """
     格式化日期用于显示

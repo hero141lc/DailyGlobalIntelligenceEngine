@@ -49,12 +49,13 @@ NITTER_INSTANCES: List[str] = []
 # 网页消息来源（非 RSS，仿真请求头 + 独立线程，60 秒间隔）
 WEB_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
-        "https://xcancel.com/elonmusk/with_replies",
+        "https://farside.link/nitter/elonmusk/with_replies",
     ],
     "twitter_trump": [
-        "https://nitter.tiekoetter.com/realDonaldTrump/with_replies",
+        "https://farside.link/nitter/realDonaldTrump/with_replies",
     ],
 }
+# 备忘 https://xcancel.com/elonmusk/with_replies
 
 # 网页请求仿真头（模拟浏览器）
 WEB_REQUEST_HEADERS: Dict[str, str] = {
@@ -71,7 +72,8 @@ WEB_REQUEST_HEADERS: Dict[str, str] = {
     "Cache-Control": "max-age=0",
 }
 
-WEB_REQUEST_INTERVAL = 60  # 秒（网页来源请求间隔）
+WEB_REQUEST_INTERVAL = 1  # 秒（网页来源请求间隔）
+WEB_REQUEST_RETRIES = 5   # 网页来源（推特/智能网关）请求失败时默认重试次数
 
 # RSS 源配置（参考 Gemini 优化：美股深度、SEC、市场情绪；Nitter 已弃用，用 Google News / 专业站）
 RSS_SOURCES: Dict[str, List[str]] = {
@@ -92,24 +94,26 @@ RSS_SOURCES: Dict[str, List[str]] = {
         "https://spacenews.com/feed/",
         "https://news.google.com/rss/search?q=SpaceX+Starlink+launch&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 宏观经济与美联储（Fed 官方 + CNBC）
+    # 宏观经济与美联储（Fed 官方 + CNBC Top News + Google News）
     "fed": [
         "https://www.federalreserve.gov/feeds/press_all.xml",
-        "https://www.cnbc.com/id/20911465/device/rss/rss.html",
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
         "https://news.google.com/rss/search?q=Federal+Reserve+FOMC+interest+rate&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 黄金（Kitco 权威 + Google News）
+    # 黄金（Google News 为主；Kitco 旧 RSS 已 404 已移除）
     "gold": [
-        "https://www.kitco.com/rss/category/news",
         "https://news.google.com/rss/search?q=gold+price+precious+metal&hl=en-US&gl=US&ceid=US:en",
+        "https://www.mining.com/feed/",
     ],
-    # 石油（OilPrice 已在 energy；此处补 Google News）
+    # 石油（OilPrice + Google News）
     "oil": [
+        "https://oilprice.com/rss/main",
         "https://news.google.com/rss/search?q=oil+crude+WTI+Brent&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 军事（Google News）
+    # 军事（Google News + Reuters World）
     "military": [
         "https://news.google.com/rss/search?q=military+defense+Pentagon+Ukraine&hl=en-US&gl=US&ceid=US:en",
+        "https://feeds.reuters.com/reuters/worldNews",
     ],
     # 美股深度（CNBC Finance、MarketWatch、Seeking Alpha）
     "stocks": [
