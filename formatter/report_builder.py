@@ -13,6 +13,9 @@ CATEGORY_ORDER = [
     "马斯克",
     "特朗普",
     "能源/电力",
+    "黄金",
+    "石油",
+    "军事",
     "AI 应用",
     "商业航天/星链",
     "美联储",
@@ -156,12 +159,13 @@ def format_stocks_section(items: List[Dict]) -> str:
     html += "</div>"
     return html
 
-def build_html_report(items: List[Dict]) -> str:
+def build_html_report(items: List[Dict], report_summary: str = None) -> str:
     """
     构建完整的 HTML 邮件报告
     
     Args:
         items: 所有数据项列表
+        report_summary: 可选，报告末尾的「今日总结」一段话
     
     Returns:
         完整的 HTML 邮件内容
@@ -170,6 +174,16 @@ def build_html_report(items: List[Dict]) -> str:
     
     # 按类别分组
     grouped = group_by_category(items)
+    
+    # 总结段落（在页脚前）
+    summary_block = ""
+    if report_summary and report_summary.strip():
+        summary_block = f"""
+            <div style="margin-top: 24px; margin-bottom: 20px; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #3498db; border-radius: 4px;">
+                <h3 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 16px;">【今日总结】</h3>
+                <p style="margin: 0; color: #34495e; line-height: 1.6; font-size: 14px;">{report_summary.strip()}</p>
+            </div>
+        """
     
     # 构建 HTML
     html = f"""
@@ -205,10 +219,11 @@ def build_html_report(items: List[Dict]) -> str:
         if category not in CATEGORY_ORDER:
             html += format_category_section(category, category_items)
     
+    html += summary_block
     html += """
             <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1; text-align: center; color: #95a5a6; font-size: 12px;">
                 <p>本报告由 Daily Global Intelligence Engine 自动生成</p>
-                <p>数据来源：公开 RSS 源、Yahoo Finance、Nitter 等</p>
+                <p>数据来源：公开 RSS 源、Yahoo Finance、xcancel/Nitter 等</p>
             </div>
         </div>
     </body>
@@ -217,12 +232,13 @@ def build_html_report(items: List[Dict]) -> str:
     
     return html
 
-def build_text_report(items: List[Dict]) -> str:
+def build_text_report(items: List[Dict], report_summary: str = None) -> str:
     """
     构建纯文本报告（备用）
     
     Args:
         items: 所有数据项列表
+        report_summary: 可选，报告末尾的「今日总结」一段话
     
     Returns:
         纯文本报告内容
@@ -248,6 +264,11 @@ def build_text_report(items: List[Dict]) -> str:
                 text += f"  （来源：{source}）\n\n"
             
             text += "\n"
+    
+    if report_summary and report_summary.strip():
+        text += "\n【今日总结】\n"
+        text += "-" * 30 + "\n"
+        text += report_summary.strip() + "\n\n"
     
     text += "\n" + "=" * 50 + "\n"
     text += "本报告由 Daily Global Intelligence Engine 自动生成\n"

@@ -2,6 +2,7 @@
 LLM 摘要模块
 使用 GitHub 提供的模型 API（通过 models.inference.ai.azure.com）
 """
+import re
 import requests
 import time
 from typing import List, Dict, Optional
@@ -155,25 +156,166 @@ def summarize_item(item: Dict) -> Dict:
 
 def summarize_batch(items: List[Dict], delay: float = 1.2) -> List[Dict]:
     """
-    批量生成摘要
-    
-    Args:
-        items: 数据项列表
-        delay: 每次请求之间的延迟（秒），避免速率限制（默认1.2秒，避免429错误）
-    
-    Returns:
-        添加了 summary 字段的数据项列表
+    批量生成摘要（逐条调用，保留用于回退）
     """
     summarized_items: List[Dict] = []
-    
     for i, item in enumerate(items):
         logger.info(f"生成摘要 {i + 1}/{len(items)}: {item.get('title', '')[:50]}")
         summarized_item = summarize_item(item)
         summarized_items.append(summarized_item)
-        
-        # 延迟以避免速率限制（生产级：1.2秒延迟）
-        # GitHub Models 免费版有速率限制，需要适当延迟
         if i < len(items) - 1:
             time.sleep(delay)
-    
     return summarized_items
+
+
+def _call_github_models(
+    messages: List[Dict],
+    max_tokens: int = None,
+    max_retries: int = 3,
+) -> Optional[str]:
+    """调用 GitHub Models API，返回 content 文本。"""
+    github_token = settings.GITHUB_TOKEN
+    if not github_token or not isinstance(github_token, str) or not github_token.strip():
+        return None
+    url = "https://models.inference.ai.azure.com/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "model": settings.GITHUB_MODEL_NAME,
+        "messages": messages,
+        "max_tokens": max_tokens or settings.LLM_MAX_TOKENS,
+        "temperature": settings.LLM_TEMPERATURE,
+    }
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=60)
+            if response.status_code == 401:
+                logger.error("GitHub Models API 认证失败（401）")
+                return None
+            if response.status_code == 429:
+                wait_time = 15 + (5 * attempt)
+                logger.warning(f"API 限流（429），{wait_time}s 后重试（{attempt + 1}/{max_retries}）")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue
+                return None
+            response.raise_for_status()
+            result = response.json()
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            return content if content else None
+        except Exception as e:
+            logger.warning(f"API 调用失败（尝试 {attempt + 1}/{max_retries}）: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    return None  # 所有重试后仍未返回则返回 None
+
+
+def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
+    """
+    一次性为所有条目生成中文简介（一次 LLM 调用），避免逐条请求。
+    要求模型按顺序输出「1. 摘要\\n2. 摘要\\n...」，解析后写回各条目的 summary。
+    """
+    if not items:
+        return items
+    # 构建一条统一 prompt，每条只带标题和短内容
+    lines = []
+    for i, item in enumerate(items, 1):
+        title = (item.get("title") or "")[:120]
+        content = (item.get("content") or item.get("title") or "")[:200]
+        content = content.replace("\n", " ").strip()
+        lines.append(f"[{i}] 标题：{title}\n    内容：{content}")
+    block = "\n\n".join(lines)
+    prompt = f"""你是一位专业的投资情报分析师。请将以下 {len(items)} 条英文信息分别总结成简洁的中文摘要。
+
+要求：
+1. 输出语言：中文
+2. 风格：投资情报/晨报风格，客观、简洁
+3. 只总结原始信息，不要猜测或扩展
+4. 每条摘要控制在 80 字以内
+5. 必须严格按顺序输出，格式为每行一条：
+1. 第一条的中文摘要
+2. 第二条的中文摘要
+...
+{len(items)}. 第{len(items)}条的中文摘要
+
+原始信息（每条以 [序号] 开头）：
+{block}
+
+请直接输出 {len(items)} 条摘要，不要其他说明："""
+    messages = [
+        {"role": "system", "content": "你擅长将英文情报总结成简洁的中文摘要，并严格按序号逐条输出。"},
+        {"role": "user", "content": prompt},
+    ]
+    # 批量输出可能较长，上限取配置的 2 倍与 8000 的较大值，且不超过 150*条数+1000
+    cap = getattr(settings, "LLM_MAX_TOKENS", 2000) or 2000
+    batch_max = min(max(cap * 2, 8000), 150 * len(items) + 1000)
+    raw = _call_github_models(messages, max_tokens=batch_max)
+    if not raw:
+        logger.warning("统一摘要 API 未返回内容，回退为逐条摘要或截断原文")
+        return summarize_batch(items, delay=1.2)
+    # 解析 "1. xxx" "2. xxx" ...（按行或按序号块）
+    summaries = [None] * len(items)
+    lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
+    for j, ln in enumerate(lines):
+        if j >= len(items):
+            break
+        # 去掉行首 "数字. " 或 "数字）" 或 "数字．"
+        t = re.sub(r"^\d+[\.．)\s]+", "", ln).strip()
+        if t and len(t) > 2:
+            summaries[j] = t[:300]
+    # 若按行解析不足，再尝试按序号块匹配
+    if sum(1 for s in summaries if s) < len(items):
+        for i in range(1, len(items) + 1):
+            if summaries[i - 1]:
+                continue
+            pat = re.compile(rf"^{i}[\.．)\s]+\s*(.+?)(?=\n\d+[\.．)\s]+|\Z)", re.DOTALL | re.MULTILINE)
+            m = pat.search(raw)
+            if m:
+                s = m.group(1).strip().replace("\n", " ").strip()
+                if s:
+                    summaries[i - 1] = s[:300]
+    for idx, item in enumerate(items):
+        s = summaries[idx] if idx < len(summaries) and summaries[idx] else None
+        if not s:
+            orig = item.get("content", item.get("title", ""))
+            s = orig[:200] + ("..." if len(orig) > 200 else "")
+        item["summary"] = s
+    logger.info(f"统一摘要完成：{len(items)} 条")
+    return items
+
+
+def generate_report_summary(items: List[Dict]) -> Optional[str]:
+    """
+    根据当日所有条目生成一段报告总结（一段话），用于放在报告末尾。
+    """
+    if not items:
+        return None
+    # 每条只用标题 + 已有 summary 或 content 的短片段
+    parts = []
+    for i, item in enumerate(items[:40], 1):
+        title = (item.get("title") or "")[:80]
+        summary = item.get("summary") or item.get("content") or ""
+        summary = (summary[:150] if summary else "").replace("\n", " ")
+        cat = item.get("category", "")
+        parts.append(f"[{i}] [{cat}] {title} | {summary}")
+    block = "\n".join(parts)
+    prompt = f"""你是一位全球科技与金融情报分析师。根据以下今日情报条目，写一段简短的「今日总结」（一段话，约 150 字以内）。
+
+要求：
+1. 中文
+2. 概括今日要点：商业航天/星链、美联储、股市、能源、黄金、石油、军事、AI、政要动态等
+3. 客观、不猜测，只基于给出的条目
+4. 直接输出总结段落，不要标题、不要列表、不要「总结：」等前缀
+
+今日条目：
+{block}
+
+请直接输出一段总结："""
+    messages = [
+        {"role": "system", "content": "你擅长写简洁的每日情报总结段落。"},
+        {"role": "user", "content": prompt},
+    ]
+    summary_cap = getattr(settings, "LLM_MAX_TOKENS", 2000) or 2000
+    return _call_github_models(messages, max_tokens=min(summary_cap, 2000))

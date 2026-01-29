@@ -50,14 +50,37 @@ NITTER_INSTANCES = [
     "https://nitter.privacyredirect.com",
 ]
 
-# RSS 源配置
-RSS_SOURCES: Dict[str, List[str]] = {
+# 网页消息来源（非 RSS，仿真请求头 + 独立线程，请求间隔 30 秒）
+WEB_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
-        "https://rsshub.rssforever.com/telegram/channel/ElonMusk",
+        "https://xcancel.com/elonmusk/with_replies",
     ],
     "twitter_trump": [
-        "https://rsshub.rssforever.com/telegram/channel/ElonMusk",
+        "https://xcancel.com/realDonaldTrump/with_replies",
     ],
+}
+
+# 网页请求仿真头（模拟浏览器）
+WEB_REQUEST_HEADERS: Dict[str, str] = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
+
+WEB_REQUEST_INTERVAL = 30  # 秒
+
+# RSS 源配置（必须是真正的 RSS/Atom 地址）
+RSS_SOURCES: Dict[str, List[str]] = {
+    "twitter_elon": [],  # 马斯克改由 WEB_SOURCES 采集
+    "twitter_trump": [],  # 特朗普改由 WEB_SOURCES 采集
     "energy": [
         "https://www.eia.gov/rss/todayinenergy.xml",
         "https://news.google.com/rss/search?q=energy+power+electricity+price&hl=en-US&gl=US&ceid=US:en",
@@ -73,6 +96,15 @@ RSS_SOURCES: Dict[str, List[str]] = {
         "https://www.federalreserve.gov/feeds/press_all.xml",
         "https://news.google.com/rss/search?q=Federal+Reserve+FOMC+interest+rate&hl=en-US&gl=US&ceid=US:en",
     ],
+    "gold": [
+        "https://news.google.com/rss/search?q=gold+price+precious+metal&hl=en-US&gl=US&ceid=US:en",
+    ],
+    "oil": [
+        "https://news.google.com/rss/search?q=oil+crude+WTI+Brent+energy&hl=en-US&gl=US&ceid=US:en",
+    ],
+    "military": [
+        "https://news.google.com/rss/search?q=military+defense+Pentagon+Ukraine+China+army&hl=en-US&gl=US&ceid=US:en",
+    ],
 }
 
 # 股票配置
@@ -86,9 +118,9 @@ STOCK_INDICES = {
 # 大涨个股阈值（百分比）
 STOCK_SURGE_THRESHOLD = 7.0
 
-# LLM 配置
+# LLM 配置（扩大 token 以支持更长摘要与总结）
 LLM_MODEL = "gpt-4o-mini"
-LLM_MAX_TOKENS = 500
+LLM_MAX_TOKENS = 12000
 LLM_TEMPERATURE = 0.3
 
 # 采集限制

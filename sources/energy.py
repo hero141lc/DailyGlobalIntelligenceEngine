@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from config import settings
 from utils.logger import logger
 from utils.time import is_today, format_date_for_display, parse_date
+from utils.source_from_entry import get_entry_source
 
 def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict]:
     """
@@ -110,14 +111,15 @@ def collect_energy_news() -> List[Dict]:
         if not feed or not feed.entries:
             continue
         
-        # 确定数据源名称
-        source_name = "Reuters"
+        # 确定该 feed 的默认数据源名称
+        feed_source = "Reuters"
         if "eia.gov" in rss_url:
-            source_name = "EIA"
+            feed_source = "EIA"
         elif "reuters" in rss_url:
-            source_name = "Reuters"
+            feed_source = "Reuters"
         
         for entry in feed.entries[:settings.MAX_ITEMS_PER_SOURCE]:
+            source_name = get_entry_source(entry, rss_url, feed_source)
             item = parse_entry(entry, source_name)
             if item:
                 all_items.append(item)

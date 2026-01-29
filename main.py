@@ -8,7 +8,8 @@ from typing import List, Dict
 from utils.logger import logger
 from utils.dedup import deduplicate_items
 from sources import twitter, energy, ai, space, fed, stocks
-from llm.github_llm import summarize_batch
+from sources import web_sources, commodities_military
+from llm.github_llm import summarize_batch_unified, generate_report_summary
 from formatter.report_builder import build_html_report
 from mail.mailer import send_report
 
@@ -25,26 +26,44 @@ def collect_all_data() -> List[Dict]:
     logger.info("开始数据采集")
     logger.info("=" * 60)
     
-    # 1. 采集 Twitter 数据（马斯克/特朗普）
-    logger.info("\n[1/6] 采集 Twitter 数据...")
+    # 1. 采集网页来源（马斯克/特朗普，独立线程、30 秒间隔、仿真请求头）
+    logger.info("\n[1/7] 采集网页来源（X/马斯克/特朗普）...")
+    try:
+        web_items = web_sources.collect_all()
+        all_items.extend(web_items)
+        logger.info(f"✓ 网页来源采集到 {len(web_items)} 条")
+    except Exception as e:
+        logger.error(f"✗ 网页来源采集失败: {e}")
+
+    # 2. 采集 Twitter RSS（若配置了 RSS 则补充）
+    logger.info("\n[2/7] 采集 Twitter RSS...")
     try:
         twitter_items = twitter.collect_all()
         all_items.extend(twitter_items)
-        logger.info(f"✓ 采集到 {len(twitter_items)} 条 Twitter 数据")
+        logger.info(f"✓ 采集到 {len(twitter_items)} 条 Twitter RSS 数据")
     except Exception as e:
-        logger.error(f"✗ Twitter 数据采集失败: {e}")
+        logger.error(f"✗ Twitter RSS 采集失败: {e}")
     
-    # 2. 采集能源/电力数据
-    logger.info("\n[2/6] 采集能源/电力数据...")
+    # 3. 采集能源/电力数据
+    logger.info("\n[3/8] 采集能源/电力数据...")
     try:
         energy_items = energy.collect_all()
         all_items.extend(energy_items)
         logger.info(f"✓ 采集到 {len(energy_items)} 条能源/电力数据")
     except Exception as e:
         logger.error(f"✗ 能源/电力数据采集失败: {e}")
+
+    # 4. 采集黄金、石油、军事
+    logger.info("\n[4/8] 采集黄金/石油/军事...")
+    try:
+        cm_items = commodities_military.collect_all()
+        all_items.extend(cm_items)
+        logger.info(f"✓ 采集到 {len(cm_items)} 条黄金/石油/军事数据")
+    except Exception as e:
+        logger.error(f"✗ 黄金/石油/军事采集失败: {e}")
     
-    # 3. 采集 AI 应用数据
-    logger.info("\n[3/6] 采集 AI 应用数据...")
+    # 5. 采集 AI 应用数据
+    logger.info("\n[5/8] 采集 AI 应用数据...")
     try:
         ai_items = ai.collect_all()
         all_items.extend(ai_items)
@@ -52,8 +71,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ AI 应用数据采集失败: {e}")
     
-    # 4. 采集商业航天数据
-    logger.info("\n[4/6] 采集商业航天数据...")
+    # 6. 采集商业航天数据
+    logger.info("\n[6/8] 采集商业航天数据...")
     try:
         space_items = space.collect_all()
         all_items.extend(space_items)
@@ -61,8 +80,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 商业航天数据采集失败: {e}")
     
-    # 5. 采集美联储数据
-    logger.info("\n[5/6] 采集美联储数据...")
+    # 7. 采集美联储数据
+    logger.info("\n[7/8] 采集美联储数据...")
     try:
         fed_items = fed.collect_all()
         all_items.extend(fed_items)
@@ -70,8 +89,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 美联储数据采集失败: {e}")
     
-    # 6. 采集美股市场数据
-    logger.info("\n[6/6] 采集美股市场数据...")
+    # 8. 采集美股市场数据
+    logger.info("\n[8/8] 采集美股市场数据...")
     try:
         stocks_items = stocks.collect_all()
         all_items.extend(stocks_items)
@@ -109,18 +128,16 @@ def process_data(items: List[Dict]) -> List[Dict]:
     valid_items = [item for item in unique_items if item.get("title") and item.get("url")]
     logger.info(f"✓ 过滤完成：{len(unique_items)} -> {len(valid_items)} 条")
     
-    # 3. 生成摘要（如果配置了 GitHub Token）
-    logger.info("\n[3/3] 生成中文摘要...")
+    # 3. 一次性生成所有中文摘要（如果配置了 GitHub Token）
+    logger.info("\n[3/3] 一次性生成中文摘要...")
     try:
         from config import settings
         if settings.GITHUB_TOKEN:
-            # 使用 GitHub 提供的模型
-            summarized_items = summarize_batch(valid_items, delay=1.2)  # 使用1.2秒延迟避免429限流
+            summarized_items = summarize_batch_unified(valid_items)
             logger.info(f"✓ 摘要生成完成：{len(summarized_items)} 条")
             return summarized_items
         else:
             logger.warning("未配置 GITHUB_TOKEN，跳过摘要生成，使用原始内容")
-            # 为没有摘要的项添加 summary 字段（使用原始内容前200字）
             for item in valid_items:
                 if "summary" not in item:
                     original_content = item.get("content", item.get("title", ""))
@@ -128,7 +145,6 @@ def process_data(items: List[Dict]) -> List[Dict]:
             return valid_items
     except Exception as e:
         logger.error(f"✗ 摘要生成失败: {e}")
-        # 即使摘要失败，也返回原始数据（使用原始内容前200字）
         for item in valid_items:
             if "summary" not in item:
                 original_content = item.get("content", item.get("title", ""))
@@ -160,12 +176,21 @@ def main():
             logger.warning("注意：不会发送空邮件")
             sys.exit(0)
         
-        # 3. 生成报告
+        # 3. 生成报告总结（一段话）
         logger.info("\n" + "=" * 60)
-        logger.info("生成报告")
+        logger.info("生成报告与总结")
         logger.info("=" * 60)
+        report_summary = None
+        try:
+            from config import settings
+            if settings.GITHUB_TOKEN:
+                report_summary = generate_report_summary(processed_items)
+                if report_summary:
+                    logger.info("✓ 报告总结生成完成")
+        except Exception as e:
+            logger.warning(f"报告总结生成失败（不影响报告）: {e}")
         
-        html_report = build_html_report(processed_items)
+        html_report = build_html_report(processed_items, report_summary=report_summary)
         logger.info("✓ HTML 报告生成完成")
         
         # 4. 发送邮件
