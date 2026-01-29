@@ -55,7 +55,7 @@ WEB_SOURCES: Dict[str, List[str]] = {
         "https://nitter.tiekoetter.com/realDonaldTrump/with_replies",
     ],
 }
-# 备忘 https://xcancel.com/elonmusk/with_replies
+# 备忘 https://xcancel.com/elonmusk/with_replies https://farside.link/nitter/
 
 # 网页请求仿真头（模拟浏览器）
 WEB_REQUEST_HEADERS: Dict[str, str] = {
