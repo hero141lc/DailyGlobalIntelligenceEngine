@@ -43,14 +43,10 @@ else:
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")  # GitHub Token
 GITHUB_MODEL_NAME = os.getenv("GITHUB_MODEL_NAME", "gpt-4o-mini")  # GitHub 提供的模型名称
 
-# 数据源配置
-NITTER_INSTANCES = [
-    "https://nitter.net",
-    "https://nitter.pussthecat.org",
-    "https://nitter.privacyredirect.com",
-]
+# 数据源配置（Nitter 已禁用：均为 404，马斯克/特朗普改由 WEB_SOURCES 网页采集）
+NITTER_INSTANCES: List[str] = []
 
-# 网页消息来源（非 RSS，仿真请求头 + 独立线程，请求间隔 30 秒）
+# 网页消息来源（非 RSS，仿真请求头 + 独立线程，60 秒间隔）
 WEB_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
         "https://xcancel.com/elonmusk/with_replies",
@@ -75,35 +71,55 @@ WEB_REQUEST_HEADERS: Dict[str, str] = {
     "Cache-Control": "max-age=0",
 }
 
-WEB_REQUEST_INTERVAL = 30  # 秒
+WEB_REQUEST_INTERVAL = 60  # 秒（网页来源请求间隔）
 
-# RSS 源配置（必须是真正的 RSS/Atom 地址）
+# RSS 源配置（参考 Gemini 优化：美股深度、SEC、市场情绪；Nitter 已弃用，用 Google News / 专业站）
 RSS_SOURCES: Dict[str, List[str]] = {
-    "twitter_elon": [],  # 马斯克改由 WEB_SOURCES 采集
-    "twitter_trump": [],  # 特朗普改由 WEB_SOURCES 采集
+    # 能源（EIA + OilPrice.com）
     "energy": [
         "https://www.eia.gov/rss/todayinenergy.xml",
+        "https://oilprice.com/rss/main",
         "https://news.google.com/rss/search?q=energy+power+electricity+price&hl=en-US&gl=US&ceid=US:en",
     ],
+    # 科技与 AI（TechCrunch + VentureBeat + HN 高分帖）
     "ai": [
         "https://techcrunch.com/tag/artificial-intelligence/feed/",
-        "https://hnrss.org/frontpage",
+        "https://venturebeat.com/category/ai/feed/",
+        "https://hnrss.org/frontpage?points=100",
     ],
+    # 商业航天（SpaceNews + Google News）
     "space": [
+        "https://spacenews.com/feed/",
         "https://news.google.com/rss/search?q=SpaceX+Starlink+launch&hl=en-US&gl=US&ceid=US:en",
     ],
+    # 宏观经济与美联储（Fed 官方 + CNBC）
     "fed": [
         "https://www.federalreserve.gov/feeds/press_all.xml",
+        "https://www.cnbc.com/id/20911465/device/rss/rss.html",
         "https://news.google.com/rss/search?q=Federal+Reserve+FOMC+interest+rate&hl=en-US&gl=US&ceid=US:en",
     ],
+    # 黄金（Kitco 权威 + Google News）
     "gold": [
+        "https://www.kitco.com/rss/category/news",
         "https://news.google.com/rss/search?q=gold+price+precious+metal&hl=en-US&gl=US&ceid=US:en",
     ],
+    # 石油（OilPrice 已在 energy；此处补 Google News）
     "oil": [
-        "https://news.google.com/rss/search?q=oil+crude+WTI+Brent+energy&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=oil+crude+WTI+Brent&hl=en-US&gl=US&ceid=US:en",
     ],
+    # 军事（Google News）
     "military": [
-        "https://news.google.com/rss/search?q=military+defense+Pentagon+Ukraine+China+army&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=military+defense+Pentagon+Ukraine&hl=en-US&gl=US&ceid=US:en",
+    ],
+    # 美股深度（CNBC Finance、MarketWatch、Seeking Alpha）
+    "stocks": [
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
+        "http://feeds.marketwatch.com/marketwatch/topstories/",
+        "https://seekingalpha.com/market_currents.xml",
+    ],
+    # 特斯拉/马斯克 专属 SEC 监管文件
+    "sec_filings": [
+        "https://data.sec.gov/rss?cik=1318605&type=&exclude=true&count=40",
     ],
 }
 

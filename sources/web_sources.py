@@ -155,17 +155,32 @@ def _worker(result_list: List[Dict], interval: float) -> None:
             time.sleep(interval)
 
 
-def collect_all() -> List[Dict]:
+def start_collection_thread() -> tuple:
     """
-    在独立线程中采集所有 WEB_SOURCES，请求间隔 30 秒，返回合并后的列表。
+    启动网页采集的独立线程，不阻塞主线程。
+    主流程可继续采集其他源，最后 join 本线程再合并结果。
+
+    Returns:
+        (thread, result_list): 线程对象与结果列表（线程会往 result_list 里追加）
     """
-    web_sources = getattr(settings, "WEB_SOURCES", None) or {}
-    if not web_sources:
-        return []
+    web_sources_config = getattr(settings, "WEB_SOURCES", None) or {}
     result_list: List[Dict] = []
+    if not web_sources_config:
+        th = threading.Thread(target=lambda: None, daemon=True)
+        th.start()
+        return th, result_list
     interval = float(getattr(settings, "WEB_REQUEST_INTERVAL", 30) or 30)
     th = threading.Thread(target=_worker, args=(result_list, interval), daemon=False)
     th.start()
+    return th, result_list
+
+
+def collect_all() -> List[Dict]:
+    """
+    在独立线程中采集所有 WEB_SOURCES，请求间隔 30 秒，返回合并后的列表。
+    会阻塞直到采集完成；若希望不阻塞，请用 start_collection_thread()。
+    """
+    th, result_list = start_collection_thread()
     th.join()
     logger.info(f"网页来源采集完成，共 {len(result_list)} 条")
     return result_list

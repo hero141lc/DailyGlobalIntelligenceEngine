@@ -7,8 +7,8 @@ from typing import List, Dict
 
 from utils.logger import logger
 from utils.dedup import deduplicate_items
-from sources import twitter, energy, ai, space, fed, stocks
-from sources import web_sources, commodities_military
+from sources import energy, ai, space, fed, stocks
+from sources import web_sources, commodities_military, rss_extra
 from llm.github_llm import summarize_batch_unified, generate_report_summary
 from formatter.report_builder import build_html_report
 from mail.mailer import send_report
@@ -26,26 +26,16 @@ def collect_all_data() -> List[Dict]:
     logger.info("开始数据采集")
     logger.info("=" * 60)
     
-    # 1. 采集网页来源（马斯克/特朗普，独立线程、30 秒间隔、仿真请求头）
-    logger.info("\n[1/7] 采集网页来源（X/马斯克/特朗普）...")
+    # 1. 启动网页来源采集（独立线程、60 秒间隔、仿真请求头），主流程不等待
+    logger.info("\n[1/8] 采集网页来源（X/马斯克/特朗普，独立线程已启动）...")
+    web_thread, web_result_list = None, []
     try:
-        web_items = web_sources.collect_all()
-        all_items.extend(web_items)
-        logger.info(f"✓ 网页来源采集到 {len(web_items)} 条")
+        web_thread, web_result_list = web_sources.start_collection_thread()
     except Exception as e:
-        logger.error(f"✗ 网页来源采集失败: {e}")
+        logger.error(f"✗ 网页来源线程启动失败: {e}")
 
-    # 2. 采集 Twitter RSS（若配置了 RSS 则补充）
-    logger.info("\n[2/7] 采集 Twitter RSS...")
-    try:
-        twitter_items = twitter.collect_all()
-        all_items.extend(twitter_items)
-        logger.info(f"✓ 采集到 {len(twitter_items)} 条 Twitter RSS 数据")
-    except Exception as e:
-        logger.error(f"✗ Twitter RSS 采集失败: {e}")
-    
-    # 3. 采集能源/电力数据
-    logger.info("\n[3/8] 采集能源/电力数据...")
+    # 2. 采集能源/电力数据
+    logger.info("\n[2/8] 采集能源/电力数据...")
     try:
         energy_items = energy.collect_all()
         all_items.extend(energy_items)
@@ -53,8 +43,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 能源/电力数据采集失败: {e}")
 
-    # 4. 采集黄金、石油、军事
-    logger.info("\n[4/8] 采集黄金/石油/军事...")
+    # 3. 采集黄金、石油、军事
+    logger.info("\n[3/8] 采集黄金/石油/军事...")
     try:
         cm_items = commodities_military.collect_all()
         all_items.extend(cm_items)
@@ -62,8 +52,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 黄金/石油/军事采集失败: {e}")
     
-    # 5. 采集 AI 应用数据
-    logger.info("\n[5/8] 采集 AI 应用数据...")
+    # 4. 采集 AI 应用数据
+    logger.info("\n[4/8] 采集 AI 应用数据...")
     try:
         ai_items = ai.collect_all()
         all_items.extend(ai_items)
@@ -71,8 +61,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ AI 应用数据采集失败: {e}")
     
-    # 6. 采集商业航天数据
-    logger.info("\n[6/8] 采集商业航天数据...")
+    # 5. 采集商业航天数据
+    logger.info("\n[5/8] 采集商业航天数据...")
     try:
         space_items = space.collect_all()
         all_items.extend(space_items)
@@ -80,8 +70,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 商业航天数据采集失败: {e}")
     
-    # 7. 采集美联储数据
-    logger.info("\n[7/8] 采集美联储数据...")
+    # 6. 采集美联储数据
+    logger.info("\n[6/8] 采集美联储数据...")
     try:
         fed_items = fed.collect_all()
         all_items.extend(fed_items)
@@ -89,14 +79,31 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 美联储数据采集失败: {e}")
     
-    # 8. 采集美股市场数据
-    logger.info("\n[8/8] 采集美股市场数据...")
+    # 7. 采集美股市场数据（Stooq 指数 + 大涨个股）
+    logger.info("\n[7/8] 采集美股市场数据...")
     try:
         stocks_items = stocks.collect_all()
         all_items.extend(stocks_items)
         logger.info(f"✓ 采集到 {len(stocks_items)} 条美股市场数据")
     except Exception as e:
         logger.error(f"✗ 美股市场数据采集失败: {e}")
+
+    # 8. 采集美股快讯 + SEC 监管（CNBC、MarketWatch、Seeking Alpha、SEC）
+    logger.info("\n[8/8] 采集美股快讯与 SEC 监管...")
+    try:
+        rss_extra_items = rss_extra.collect_all()
+        all_items.extend(rss_extra_items)
+        logger.info(f"✓ 采集到 {len(rss_extra_items)} 条美股快讯/SEC 监管")
+    except Exception as e:
+        logger.error(f"✗ 美股快讯/SEC 采集失败: {e}")
+
+    # 等待网页来源线程结束并合并结果
+    if web_thread is not None and web_thread.is_alive():
+        logger.info("\n等待网页来源采集线程结束...")
+        web_thread.join()
+    if web_result_list:
+        all_items = web_result_list + all_items
+        logger.info(f"✓ 网页来源采集到 {len(web_result_list)} 条（已合并）")
     
     logger.info("\n" + "=" * 60)
     logger.info(f"数据采集完成，共采集 {len(all_items)} 条数据")

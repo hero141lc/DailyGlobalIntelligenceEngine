@@ -21,6 +21,8 @@ CATEGORY_ORDER = [
     "美联储",
     "美股市场",
     "大涨个股",
+    "美股快讯",
+    "SEC监管",
 ]
 
 def group_by_category(items: List[Dict]) -> Dict[str, List[Dict]]:
