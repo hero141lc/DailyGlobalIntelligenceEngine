@@ -71,6 +71,9 @@ def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
                 "source": "Stooq",
                 "url": f"https://stooq.com/q/?s={stooq_symbol}",
                 "published_at": get_today_date(),
+                "close": latest_close,
+                "change_pct": change_pct,
+                "name": name,
             }
         except (ValueError, IndexError) as e:
             logger.debug(f"解析 Stooq 数据失败 {symbol}: {e}")
@@ -103,6 +106,9 @@ def _get_index_fallback_yahoo(symbol: str, name: str) -> Optional[Dict]:
             "source": "Yahoo Finance",
             "url": f"https://stooq.com/q/?s={stooq_symbol}",
             "published_at": get_today_date(),
+            "close": close,
+            "change_pct": change_pct,
+            "name": name,
         }
     except Exception as e:
         logger.debug(f"Yahoo 指数回退失败 {symbol}: {e}")
@@ -156,6 +162,7 @@ def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
                 "symbol": symbol,
                 "close": latest_close,
                 "change_pct": change_pct,
+                "name": symbol,
             }
         except (ValueError, IndexError):
             return None
@@ -204,6 +211,8 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
                     "url": f"https://stooq.com/q/?s={symbol}",
                     "published_at": get_today_date(),
                     "change_pct": change_pct,
+                    "close": stock_data.get("close"),
+                    "symbol": symbol,
                 })
         except Exception as e:
             # 个股失败不影响整体流程
@@ -215,6 +224,49 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
     
     logger.info(f"发现 {len(surge_stocks)} 只大涨个股（≥{threshold}%）")
     return surge_stocks
+
+
+def get_daily_movers(top_n: int = 5) -> List[Dict]:
+    """
+    获取今日涨跌一览：涨幅前 top_n 与跌幅前 top_n 的个股（不设阈值，丰富股票板块）。
+    """
+    popular_symbols = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+        "BRK-B", "V", "UNH", "JNJ", "WMT", "JPM", "MA", "PG",
+        "HD", "DIS", "BAC", "ADBE", "NFLX", "CRM", "ORCL", "INTC", "AMD",
+    ]
+    all_data: List[Dict] = []
+    for symbol in popular_symbols:
+        try:
+            d = get_stock_data_stooq(symbol)
+            if d:
+                all_data.append({
+                    "category": "今日涨跌",
+                    "title": f"{d['symbol']} {d['change_pct']:+.2f}%",
+                    "content": f"{d['symbol']} 收盘 {d.get('close', 0):.2f}，涨跌 {d['change_pct']:+.2f}%",
+                    "source": "Stooq",
+                    "url": f"https://stooq.com/q/?s={symbol}",
+                    "published_at": get_today_date(),
+                    "change_pct": d["change_pct"],
+                    "close": d.get("close"),
+                    "symbol": d["symbol"],
+                })
+        except Exception:
+            continue
+    all_data.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
+    gainers = all_data[:top_n]
+    gainer_symbols = {g["symbol"] for g in gainers}
+    loser_candidates = [x for x in all_data if x["symbol"] not in gainer_symbols]
+    losers = loser_candidates[-top_n:] if len(loser_candidates) >= top_n else loser_candidates
+    losers.reverse()
+    result = []
+    for g in gainers:
+        result.append({**g, "sub_label": "涨幅"})
+    for L in losers:
+        result.append({**L, "sub_label": "跌幅", "category": "今日涨跌"})
+    logger.info(f"今日涨跌一览：涨幅 {len(gainers)} 只，跌幅 {len(losers)} 只")
+    return result
+
 
 def collect_index_data() -> List[Dict]:
     """
@@ -256,5 +308,13 @@ def collect_all() -> List[Dict]:
         logger.info(f"成功获取 {len(surge_stocks)} 只大涨个股（Stooq）")
     except Exception as e:
         logger.warning(f"采集大涨个股失败: {e}（不影响整体流程）")
+    
+    # 今日涨跌一览（涨幅/跌幅前 N，丰富股票板块）
+    try:
+        top_n = getattr(settings, "STOCK_DAILY_MOVERS_TOP", 5) or 5
+        movers = get_daily_movers(top_n)
+        all_data.extend(movers)
+    except Exception as e:
+        logger.warning(f"采集今日涨跌一览失败: {e}（不影响整体流程）")
     
     return all_data

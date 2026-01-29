@@ -73,6 +73,14 @@ def summarize_with_github_models(item: Dict, max_retries: int = 3) -> Optional[s
             if response.status_code == 401:
                 logger.error(f"GitHub Models API 认证失败（401）：请检查 GITHUB_TOKEN 是否正确，并确保 workflow 中设置了 permissions.models: read")
                 return None
+            # 检查 400 错误（请求体/参数不合法，如 token 超限）
+            if response.status_code == 400:
+                try:
+                    err_body = (response.text or "")[:300]
+                    logger.warning(f"GitHub Models API 请求错误（400）: {err_body}")
+                except Exception:
+                    logger.warning("GitHub Models API 请求错误（400）")
+                return None
             
             # 检查 429 错误（限流）
             if response.status_code == 429:
@@ -194,6 +202,13 @@ def _call_github_models(
             if response.status_code == 401:
                 logger.error("GitHub Models API 认证失败（401）")
                 return None
+            if response.status_code == 400:
+                try:
+                    err_body = response.text[:500] if response.text else "无响应体"
+                    logger.warning(f"GitHub Models API 请求错误（400），可能为输入/输出 token 超限或参数不合法: {err_body}")
+                except Exception:
+                    logger.warning("GitHub Models API 请求错误（400）")
+                return None
             if response.status_code == 429:
                 wait_time = 15 + (5 * attempt)
                 logger.warning(f"API 限流（429），{wait_time}s 后重试（{attempt + 1}/{max_retries}）")
@@ -212,22 +227,20 @@ def _call_github_models(
     return None  # 所有重试后仍未返回则返回 None
 
 
-def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
-    """
-    一次性为所有条目生成中文简介（一次 LLM 调用），避免逐条请求。
-    要求模型按顺序输出「1. 摘要\\n2. 摘要\\n...」，解析后写回各条目的 summary。
-    """
-    if not items:
-        return items
-    # 构建一条统一 prompt，每条只带标题和短内容
+# 每批最多条目数，避免单次请求 token 超限导致 400
+BATCH_CHUNK_SIZE = 25
+
+def _summarize_one_chunk(chunk: List[Dict], start_index: int) -> List[Optional[str]]:
+    """对一小批条目调用 API 生成摘要，返回与 chunk 等长的摘要列表。"""
+    n = len(chunk)
     lines = []
-    for i, item in enumerate(items, 1):
+    for i, item in enumerate(chunk, 1):
         title = (item.get("title") or "")[:120]
         content = (item.get("content") or item.get("title") or "")[:200]
         content = content.replace("\n", " ").strip()
         lines.append(f"[{i}] 标题：{title}\n    内容：{content}")
     block = "\n\n".join(lines)
-    prompt = f"""你是一位专业的投资情报分析师。请将以下 {len(items)} 条英文信息分别总结成简洁的中文摘要。
+    prompt = f"""你是一位专业的投资情报分析师。请将以下 {n} 条英文信息分别总结成简洁的中文摘要。
 
 要求：
 1. 输出语言：中文
@@ -238,36 +251,30 @@ def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
 1. 第一条的中文摘要
 2. 第二条的中文摘要
 ...
-{len(items)}. 第{len(items)}条的中文摘要
+{n}. 第{n}条的中文摘要
 
 原始信息（每条以 [序号] 开头）：
 {block}
 
-请直接输出 {len(items)} 条摘要，不要其他说明："""
+请直接输出 {n} 条摘要，不要其他说明："""
     messages = [
         {"role": "system", "content": "你擅长将英文情报总结成简洁的中文摘要，并严格按序号逐条输出。"},
         {"role": "user", "content": prompt},
     ]
-    # 批量输出可能较长，上限取配置的 2 倍与 8000 的较大值，且不超过 150*条数+1000
     cap = getattr(settings, "LLM_MAX_TOKENS", 2000) or 2000
-    batch_max = min(max(cap * 2, 8000), 150 * len(items) + 1000)
+    batch_max = min(4096, max(800, 150 * n + 200))  # 单批输出上限，避免超模型 context
     raw = _call_github_models(messages, max_tokens=batch_max)
     if not raw:
-        logger.warning("统一摘要 API 未返回内容，回退为逐条摘要或截断原文")
-        return summarize_batch(items, delay=1.2)
-    # 解析 "1. xxx" "2. xxx" ...（按行或按序号块）
-    summaries = [None] * len(items)
-    lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
-    for j, ln in enumerate(lines):
-        if j >= len(items):
+        return [None] * n
+    summaries = [None] * n
+    for j, ln in enumerate([ln.strip() for ln in raw.split("\n") if ln.strip()]):
+        if j >= n:
             break
-        # 去掉行首 "数字. " 或 "数字）" 或 "数字．"
         t = re.sub(r"^\d+[\.．)\s]+", "", ln).strip()
         if t and len(t) > 2:
             summaries[j] = t[:300]
-    # 若按行解析不足，再尝试按序号块匹配
-    if sum(1 for s in summaries if s) < len(items):
-        for i in range(1, len(items) + 1):
+    if sum(1 for s in summaries if s) < n:
+        for i in range(1, n + 1):
             if summaries[i - 1]:
                 continue
             pat = re.compile(rf"^{i}[\.．)\s]+\s*(.+?)(?=\n\d+[\.．)\s]+|\Z)", re.DOTALL | re.MULTILINE)
@@ -276,8 +283,32 @@ def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
                 s = m.group(1).strip().replace("\n", " ").strip()
                 if s:
                     summaries[i - 1] = s[:300]
+    return summaries
+
+
+def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
+    """
+    分批为所有条目生成中文简介（每批 BATCH_CHUNK_SIZE 条一次调用），避免单次请求过大导致 400。
+    要求模型按顺序输出「1. 摘要\\n2. 摘要\\n...」，解析后写回各条目的 summary。
+    """
+    if not items:
+        return items
+    chunk_size = BATCH_CHUNK_SIZE
+    all_summaries = [None] * len(items)
+    for start in range(0, len(items), chunk_size):
+        chunk = items[start : start + chunk_size]
+        chunk_summaries = _summarize_one_chunk(chunk, start)
+        for k, s in enumerate(chunk_summaries):
+            if start + k < len(all_summaries):
+                all_summaries[start + k] = s
+        if start + chunk_size < len(items):
+            time.sleep(2)  # 批与批之间间隔，减轻 429
+    failed = sum(1 for s in all_summaries if not s)
+    if failed == len(items):
+        logger.warning("统一摘要 API 未返回内容，回退为逐条摘要或截断原文")
+        return summarize_batch(items, delay=1.5)
     for idx, item in enumerate(items):
-        s = summaries[idx] if idx < len(summaries) and summaries[idx] else None
+        s = all_summaries[idx] if idx < len(all_summaries) and all_summaries[idx] else None
         if not s:
             orig = item.get("content", item.get("title", ""))
             s = orig[:200] + ("..." if len(orig) > 200 else "")

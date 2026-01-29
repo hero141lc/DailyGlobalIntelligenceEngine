@@ -141,16 +141,20 @@ RSS_SOURCES: Dict[str, List[str]] = {
     ],
 }
 
-# 股票配置
-# 使用 Stooq API 获取数据（更稳定，无反爬）
+# 股票配置（Stooq 格式）
 STOCK_INDICES = {
     "S&P500": "^GSPC",
     "NASDAQ": "^IXIC",
     "DOW": "^DJI",
+    "Russell 2000": "^RUT",
+    "VIX": "^VIX",
 }
 
 # 大涨个股阈值（百分比）
 STOCK_SURGE_THRESHOLD = 7.0
+
+# 今日涨跌一览：取涨跌幅前 N 的个股（无论是否≥大涨阈值），丰富股票板块
+STOCK_DAILY_MOVERS_TOP = 5
 
 # LLM 配置（扩大 token 以支持更长摘要与总结）
 LLM_MODEL = "gpt-4o-mini"
