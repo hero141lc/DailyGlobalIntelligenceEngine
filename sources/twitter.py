@@ -1,47 +1,17 @@
 """
 Twitter 数据采集模块
-通过 Nitter RSS 采集马斯克和特朗普的推文
+通过 Google News RSS（from:elonmusk/realDonaldTrump site:x.com）采集马斯克和特朗普相关动态；
+网页抓取（WEB_SOURCES）仍由 web_sources 模块独立进行，二者并存。
 """
-import feedparser
-import requests
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 
+import feedparser
+
 from config import settings
+from utils.rss_fetcher import fetch_rss
 from utils.logger import logger
 from utils.time import is_today, format_date_for_display
-
-def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict]:
-    """
-    获取 RSS 源（使用 RSSHub，对 GitHub Actions 更友好）
-    
-    Args:
-        url: RSS URL
-        timeout: 请求超时时间（秒）
-    
-    Returns:
-        feedparser 解析结果，失败返回 None
-    """
-    try:
-        # 添加延迟，避免限流
-        import time
-        time.sleep(1)
-        
-        response = requests.get(url, timeout=timeout, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-        
-        # 429 错误不重试
-        if response.status_code == 429:
-            logger.warning(f"RSS 源限流 {url}，跳过")
-            return None
-        
-        response.raise_for_status()
-        feed = feedparser.parse(response.content)
-        return feed
-    except Exception as e:
-        logger.warning(f"获取 RSS 失败 {url}: {e}")
-        return None
 
 def parse_tweet_entry(entry: feedparser.FeedParserDict, username: str) -> Optional[Dict]:
     """

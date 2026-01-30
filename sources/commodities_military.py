@@ -2,16 +2,16 @@
 黄金、石油、军事数据采集模块
 通过 RSS（如 Google News）采集
 """
-import time
-import feedparser
-import requests
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
+
+import feedparser
 
 from config import settings
 from utils.logger import logger
 from utils.time import is_today, is_today_or_yesterday, format_date_for_display, parse_date
 from utils.source_from_entry import get_entry_source
+from utils.rss_fetcher import fetch_rss
 
 try:
     from sources.rss_extra import _source_name_from_url
@@ -34,22 +34,6 @@ _CATEGORY_CONFIG = {
         "keywords": ["military", "defense", "pentagon", "ukraine", "nato", "army", "军事", "国防", "北约", "乌克兰"],
     },
 }
-
-
-def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict]:
-    try:
-        time.sleep(1)
-        response = requests.get(url, timeout=timeout, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-        if response.status_code == 429:
-            logger.warning(f"RSS 源限流 {url}，跳过")
-            return None
-        response.raise_for_status()
-        return feedparser.parse(response.content)
-    except Exception as e:
-        logger.warning(f"获取 RSS 失败 {url}: {e}")
-        return None
 
 
 def _parse_entry(

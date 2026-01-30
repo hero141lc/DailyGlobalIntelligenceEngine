@@ -2,53 +2,22 @@
 商业航天数据采集模块
 关注 SpaceX、Starlink、发射、合同等
 """
-import feedparser
-import requests
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
+
+import feedparser
 
 from config import settings
 from utils.logger import logger
 from utils.time import is_today, format_date_for_display, parse_date
 from utils.source_from_entry import get_entry_source
+from utils.rss_fetcher import fetch_rss
 
 try:
     from sources.rss_extra import _source_name_from_url
 except Exception:
     def _source_name_from_url(url: str) -> str:
         return "RSS"
-
-def fetch_rss(url: str, timeout: int = 15) -> Optional[feedparser.FeedParserDict]:
-    """
-    获取 RSS 源
-    
-    Args:
-        url: RSS URL
-        timeout: 请求超时时间（秒）
-    
-    Returns:
-        feedparser 解析结果，失败返回 None
-    """
-    try:
-        # 添加延迟和更好的 User-Agent，避免限流
-        import time
-        time.sleep(2)  # 避免 429 错误
-        
-        response = requests.get(url, timeout=timeout, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-        
-        # 429 错误不重试，直接返回 None
-        if response.status_code == 429:
-            logger.warning(f"RSS 源限流 {url}，跳过")
-            return None
-        
-        response.raise_for_status()
-        feed = feedparser.parse(response.content)
-        return feed
-    except Exception as e:
-        logger.warning(f"获取 RSS 失败 {url}: {e}")
-        return None
 
 def parse_entry(entry: feedparser.FeedParserDict, source_name: str) -> Optional[Dict]:
     """

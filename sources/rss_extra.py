@@ -1,41 +1,16 @@
 """
 美股快讯、SEC 监管等 RSS 采集（CNBC、MarketWatch、Seeking Alpha、SEC）
 """
-import time
-import feedparser
-import requests
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
+
+import feedparser
 
 from config import settings
 from utils.logger import logger
 from utils.time import is_today, format_date_for_display, parse_date
 from utils.source_from_entry import get_entry_source
-
-
-def fetch_rss(url: str, timeout: int = 15, max_retries: int = 3) -> Optional[feedparser.FeedParserDict]:
-    """获取 RSS；失败时重试 max_retries 次（含 SEC 等偶发失败）。"""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    last_error = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            time.sleep(1)
-            response = requests.get(url, timeout=timeout, headers=headers)
-            if response.status_code == 429:
-                logger.warning(f"RSS 源限流 {url}，跳过")
-                return None
-            response.raise_for_status()
-            return feedparser.parse(response.content)
-        except Exception as e:
-            last_error = e
-            if attempt < max_retries:
-                time.sleep(2 * attempt)
-                logger.warning(f"获取 RSS 失败 {url} (第 {attempt}/{max_retries} 次): {e}，重试中")
-            else:
-                logger.warning(f"获取 RSS 失败 {url}: {e}")
-    return None
+from utils.rss_fetcher import fetch_rss
 
 
 def _source_name_from_url(url: str) -> str:

@@ -46,7 +46,7 @@ GITHUB_MODEL_NAME = os.getenv("GITHUB_MODEL_NAME", "gpt-4o-mini")  # GitHub 提�
 # 数据源配置（Nitter 已禁用：均为 404，马斯克/特朗普改由 WEB_SOURCES 网页采集）
 NITTER_INSTANCES: List[str] = []
 
-# 网页消息来源（非 RSS，仿真请求头 + 独立线程，60 秒间隔）
+# 网页消息来源（非 RSS，仿真请求头 + 独立线程；与 RSS 的 twitter_elon/twitter_trump 并存）
 WEB_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
         "https://xcancel.com/elonmusk/with_replies",
@@ -138,6 +138,13 @@ RSS_SOURCES: Dict[str, List[str]] = {
     # SEC 监管（特斯拉等，可再加其他 CIK）
     "sec_filings": [
         "https://data.sec.gov/rss?cik=1318605&type=&exclude=true&count=40",
+    ],
+    # 马斯克/特朗普：Google News RSS（与 WEB_SOURCES 网页抓取并存）
+    "twitter_elon": [
+        "https://news.google.com/rss/search?q=from:elonmusk+site:x.com&hl=en-US&gl=US&ceid=US:en",
+    ],
+    "twitter_trump": [
+        "https://news.google.com/rss/search?q=from:realDonaldTrump+site:x.com&hl=en-US&gl=US&ceid=US:en",
     ],
 }
 
