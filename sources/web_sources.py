@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 
 from config import settings
 from utils.logger import logger
-from utils.time import format_date_for_display
+from utils.time import format_date_for_display, parse_date
 
 # 每个来源最多取几条
 MAX_ITEMS_PER_PAGE = 10
@@ -193,6 +193,47 @@ def _extract_tweet_like_items(html: str, base_url: str, category: str, source_na
     return items
 
 
+def _fetch_json_truth_archive(
+    url: str, category: str, source_name: str
+) -> List[Dict]:
+    """
+    请求 Truth Social 归档 JSON，转换为与网页解析一致的条目格式。
+    期望 JSON 为数组，每项含 id, created_at, content, url 等。
+    """
+    headers = _get_headers()
+    try:
+        resp = requests.get(url, headers=headers, timeout=25)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning(f"JSON 来源请求失败 {url}: {e}")
+        return []
+    if not isinstance(data, list):
+        return []
+    items: List[Dict] = []
+    for obj in data[:MAX_ITEMS_PER_PAGE]:
+        if not isinstance(obj, dict):
+            continue
+        content_raw = (obj.get("content") or "").strip()
+        link = (obj.get("url") or "").strip()
+        created = obj.get("created_at") or ""
+        if not content_raw and not link:
+            continue
+        title = content_raw[:200] if content_raw else (link[:200] if link else "Truth Social")
+        content = (content_raw[:500] if content_raw else title) or title
+        dt = parse_date(created) if created else None
+        published_at = format_date_for_display(dt or datetime.now(timezone.utc))
+        items.append({
+            "category": category,
+            "title": title,
+            "content": content,
+            "source": source_name,
+            "url": link or url,
+            "published_at": published_at,
+        })
+    return items
+
+
 def _worker(result_list: List[Dict], interval: float) -> None:
     """
     在独立线程中按间隔请求 WEB_SOURCES，解析后写入 result_list。
@@ -204,11 +245,17 @@ def _worker(result_list: List[Dict], interval: float) -> None:
         category, source_name = _category_and_source(key)
         for url in urls:
             try:
-                html = fetch_page(url)
-                if html:
-                    parsed = _extract_tweet_like_items(html, url, category, source_name)
-                    result_list.extend(parsed)
-                    logger.info(f"网页来源 [{key}] {url} 解析到 {len(parsed)} 条")
+                if url.rstrip("/").endswith(".json"):
+                    parsed = _fetch_json_truth_archive(url, category, source_name)
+                    if parsed:
+                        result_list.extend(parsed)
+                        logger.info(f"网页来源 [{key}] {url} 解析到 {len(parsed)} 条")
+                else:
+                    html = fetch_page(url)
+                    if html:
+                        parsed = _extract_tweet_like_items(html, url, category, source_name)
+                        result_list.extend(parsed)
+                        logger.info(f"网页来源 [{key}] {url} 解析到 {len(parsed)} 条")
             except Exception as e:
                 logger.warning(f"网页来源解析失败 [{key}] {url}: {e}")
             time.sleep(interval)

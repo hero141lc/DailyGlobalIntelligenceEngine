@@ -51,11 +51,12 @@ WEB_SOURCES: Dict[str, List[str]] = {
     "twitter_elon": [
         "https://xcancel.com/elonmusk/with_replies",
     ],
+    # 特朗普：Truth Social 归档 JSON（与 RSS 并存；Nitter 在 Actions 中 403 已弃用）
     "twitter_trump": [
-        "https://nitter.poast.org/realDonaldTrump/with_replies",
+        "https://stilesdata.com/trump-truth-social-archive/truth_archive.json",
     ],
 }
-# 备忘 https://xcancel.com/elonmusk/with_replies https://farside.link/nitter/
+# 备忘 Elon: xcancel；Trump: stilesdata Truth Social JSON + RSS（Google News）
 
 # 网页请求仿真头（模拟浏览器）
 WEB_REQUEST_HEADERS: Dict[str, str] = {
@@ -82,7 +83,7 @@ RSS_SOURCES: Dict[str, List[str]] = {
         "https://www.eia.gov/rss/todayinenergy.xml",
         "https://oilprice.com/rss/main",
         "https://www.rigzone.com/news/rss/",
-        "https://www.world-nuclear-news.org/rss.aspx",
+        "https://world-nuclear-news.org/?rss=feed",
         "https://news.google.com/rss/search?q=energy+power+electricity+price&hl=en-US&gl=US&ceid=US:en",
     ],
     # 科技与 AI（多站 + HN）
@@ -94,12 +95,12 @@ RSS_SOURCES: Dict[str, List[str]] = {
         "https://arstechnica.com/feed/",
         "https://hnrss.org/frontpage?points=100",
     ],
-    # 商业航天（多站 + Google）
+    # 商业航天（spacenews 易限流，放最后）
     "space": [
-        "https://spacenews.com/feed/",
         "https://www.space.com/feeds/all",
         "https://www.nasaspaceflight.com/feed/",
         "https://news.google.com/rss/search?q=SpaceX+Starlink+launch&hl=en-US&gl=US&ceid=US:en",
+        "https://spacenews.com/feed/",
     ],
     # 美联储/宏观（官方 + 财经站 + Google）
     "fed": [
@@ -108,10 +109,9 @@ RSS_SOURCES: Dict[str, List[str]] = {
         "https://www.investing.com/rss/news_285.rss",
         "https://news.google.com/rss/search?q=Federal+Reserve+FOMC+interest+rate&hl=en-US&gl=US&ceid=US:en",
     ],
-    # 黄金（行业站 + Google）
+    # 黄金（bullionvault RSS 已 400，仅保留 mining + Google）
     "gold": [
         "https://www.mining.com/feed/",
-        "https://www.bullionvault.com/gold-news/rss.xml",
         "https://news.google.com/rss/search?q=gold+price+precious+metal&hl=en-US&gl=US&ceid=US:en",
     ],
     # 石油（行业站 + Google）
@@ -123,7 +123,7 @@ RSS_SOURCES: Dict[str, List[str]] = {
     # 军事（多站 + Google；避免 Reuters 在 Actions 中 DNS 不可达）
     "military": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.defenseone.com/rss/",
+        "https://www.defenseone.com/rss/all",
         "https://news.google.com/rss/search?q=military+defense+Pentagon+Ukraine&hl=en-US&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=Ukraine+NATO+army+defense+war&hl=en-US&gl=US&ceid=US:en",
     ],
