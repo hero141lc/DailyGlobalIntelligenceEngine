@@ -66,6 +66,8 @@ def _source_name_from_url(url: str) -> str:
         return "VentureBeat"
     if "hnrss" in url_lower:
         return "HN"
+    if "news.google.com" in url_lower:
+        return "Google News"
     return "RSS"
 
 
@@ -119,4 +121,32 @@ def collect_all() -> List[Dict]:
         logger.info(f"成功采集 {len(sec_items)} 条 SEC 监管")
     except Exception as e:
         logger.error(f"采集 SEC 监管失败: {e}")
+    # 知名企业（维谛/美光/甲骨文/七姐妹财报、订单、CEO 访华）
+    try:
+        corp_items = _collect_rss_key("corporate", "知名企业/财报")
+        all_items.extend(corp_items)
+        logger.info(f"成功采集 {len(corp_items)} 条知名企业/财报")
+    except Exception as e:
+        logger.error(f"采集知名企业失败: {e}")
+    # 关键人物（黄仁勋、英特尔、谷歌等）
+    try:
+        fig_items = _collect_rss_key("key_figures", "关键人物")
+        all_items.extend(fig_items)
+        logger.info(f"成功采集 {len(fig_items)} 条关键人物")
+    except Exception as e:
+        logger.error(f"采集关键人物失败: {e}")
+    # 地缘政治
+    try:
+        geo_items = _collect_rss_key("geopolitics", "地缘政治")
+        all_items.extend(geo_items)
+        logger.info(f"成功采集 {len(geo_items)} 条地缘政治")
+    except Exception as e:
+        logger.error(f"采集地缘政治失败: {e}")
+    # 机构研报/量化
+    try:
+        inst_items = _collect_rss_key("institutional", "机构研报")
+        all_items.extend(inst_items)
+        logger.info(f"成功采集 {len(inst_items)} 条机构研报")
+    except Exception as e:
+        logger.error(f"采集机构研报失败: {e}")
     return all_items

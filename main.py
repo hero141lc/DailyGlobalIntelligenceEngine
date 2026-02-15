@@ -7,11 +7,48 @@ from typing import List, Dict
 
 from utils.logger import logger
 from utils.dedup import deduplicate_items
+from utils import google_rss
 from sources import energy, ai, space, fed, stocks
 from sources import web_sources, commodities_military, rss_extra, twitter
-from llm.github_llm import summarize_batch_unified, generate_report_summary
+from llm.github_llm import summarize_batch_unified, generate_report_summary_with_reasoning, generate_stock_analysis
 from formatter.report_builder import build_html_report
 from mail.mailer import send_report
+
+
+def _collect_data_sources() -> List[Dict]:
+    """从配置与 Google RSS 任务收集本次用到的数据来源，用于报告内折叠展示。"""
+    from config import settings
+    sources: List[Dict] = []
+    seen: set = set()
+    for category_key, urls in (getattr(settings, "RSS_SOURCES", None) or {}).items():
+        if not urls:
+            continue
+        for url in urls:
+            key = ("rss", url)
+            if key in seen:
+                continue
+            seen.add(key)
+            sources.append({"name": category_key, "url": url, "category": "RSS"})
+    for web_key, urls in (getattr(settings, "WEB_SOURCES", None) or {}).items():
+        if not urls:
+            continue
+        for url in urls:
+            uid = ("web", url)
+            if uid in seen:
+                continue
+            seen.add(uid)
+            sources.append({"name": web_key, "url": url, "category": "网页"})
+    for task in getattr(settings, "GOOGLE_NEWS_TASKS", None) or []:
+        preset = task.get("preset", "")
+        cat = task.get("category", "世界新闻")
+        url = f"https://news.google.com/rss (preset={preset}, category={cat})"
+        uid = ("google", preset, cat)
+        if uid in seen:
+            continue
+        seen.add(uid)
+        sources.append({"name": f"Google News ({preset})", "url": url, "category": cat})
+    return sources
+
 
 def collect_all_data() -> List[Dict]:
     """
@@ -26,16 +63,22 @@ def collect_all_data() -> List[Dict]:
     logger.info("开始数据采集")
     logger.info("=" * 60)
     
-    # 1. 启动网页来源采集（独立线程、仿真请求头），主流程不等待
-    logger.info("\n[1/9] 采集网页来源（X/马斯克/特朗普，独立线程已启动）...")
+    # 1. 启动网页来源与 Google News RSS 采集（独立线程），主流程不等待
+    logger.info("\n[1/10] 采集网页来源（X/马斯克/特朗普，独立线程已启动）...")
     web_thread, web_result_list = None, []
     try:
         web_thread, web_result_list = web_sources.start_collection_thread()
     except Exception as e:
         logger.error(f"✗ 网页来源线程启动失败: {e}")
+    logger.info("[2/10] 采集 Google News RSS（世界新闻，独立线程已启动）...")
+    google_rss_thread, google_rss_result_list = None, []
+    try:
+        google_rss_thread, google_rss_result_list = google_rss.start_google_rss_collection_thread()
+    except Exception as e:
+        logger.error(f"✗ Google RSS 线程启动失败: {e}")
 
-    # 2. 采集能源/电力数据
-    logger.info("\n[2/9] 采集能源/电力数据...")
+    # 3. 采集能源/电力数据
+    logger.info("\n[3/10] 采集能源/电力数据...")
     try:
         energy_items = energy.collect_all()
         all_items.extend(energy_items)
@@ -43,8 +86,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 能源/电力数据采集失败: {e}")
 
-    # 3. 采集黄金、石油、军事
-    logger.info("\n[3/9] 采集黄金/石油/军事...")
+    # 4. 采集黄金、石油、军事
+    logger.info("\n[4/10] 采集黄金/石油/军事...")
     try:
         cm_items = commodities_military.collect_all()
         all_items.extend(cm_items)
@@ -52,8 +95,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 黄金/石油/军事采集失败: {e}")
     
-    # 4. 采集 AI 应用数据
-    logger.info("\n[4/9] 采集 AI 应用数据...")
+    # 5. 采集 AI 应用数据
+    logger.info("\n[5/10] 采集 AI 应用数据...")
     try:
         ai_items = ai.collect_all()
         all_items.extend(ai_items)
@@ -61,8 +104,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ AI 应用数据采集失败: {e}")
     
-    # 5. 采集商业航天数据
-    logger.info("\n[5/9] 采集商业航天数据...")
+    # 6. 采集商业航天数据
+    logger.info("\n[6/10] 采集商业航天数据...")
     try:
         space_items = space.collect_all()
         all_items.extend(space_items)
@@ -70,8 +113,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 商业航天数据采集失败: {e}")
     
-    # 6. 采集美联储数据
-    logger.info("\n[6/9] 采集美联储数据...")
+    # 7. 采集美联储数据
+    logger.info("\n[7/10] 采集美联储数据...")
     try:
         fed_items = fed.collect_all()
         all_items.extend(fed_items)
@@ -79,8 +122,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 美联储数据采集失败: {e}")
     
-    # 7. 采集美股市场数据（Stooq 指数 + 大涨个股）
-    logger.info("\n[7/9] 采集美股市场数据...")
+    # 8. 采集美股市场数据（Stooq 指数 + 大涨个股）
+    logger.info("\n[8/10] 采集美股市场数据...")
     try:
         stocks_items = stocks.collect_all()
         all_items.extend(stocks_items)
@@ -88,8 +131,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 美股市场数据采集失败: {e}")
 
-    # 8. 采集美股快讯 + SEC 监管（CNBC、MarketWatch、Seeking Alpha、SEC）
-    logger.info("\n[8/9] 采集美股快讯与 SEC 监管...")
+    # 9. 采集美股快讯 + SEC 监管（CNBC、MarketWatch、Seeking Alpha、SEC）
+    logger.info("\n[9/10] 采集美股快讯与 SEC 监管...")
     try:
         rss_extra_items = rss_extra.collect_all()
         all_items.extend(rss_extra_items)
@@ -97,8 +140,8 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 美股快讯/SEC 采集失败: {e}")
 
-    # 9. 马斯克/特朗普 Google News RSS（与网页抓取并存）
-    logger.info("\n[9/9] 采集马斯克/特朗普 RSS（Google News）...")
+    # 10. 马斯克/特朗普 Google News RSS（与网页抓取并存）
+    logger.info("\n[10/10] 采集马斯克/特朗普 RSS（Google News）...")
     twitter_rss_items: List[Dict] = []
     try:
         twitter_rss_items = twitter.collect_all()
@@ -106,13 +149,18 @@ def collect_all_data() -> List[Dict]:
     except Exception as e:
         logger.error(f"✗ 马斯克/特朗普 RSS 采集失败: {e}")
 
-    # 等待网页来源线程结束并合并结果（网页抓取 + Twitter RSS + 其余源）
+    # 等待网页来源与 Google RSS 线程结束并合并结果
     if web_thread is not None and web_thread.is_alive():
         logger.info("\n等待网页来源采集线程结束...")
         web_thread.join()
+    if google_rss_thread is not None and google_rss_thread.is_alive():
+        logger.info("等待 Google News RSS 采集线程结束...")
+        google_rss_thread.join()
     if web_result_list:
         logger.info(f"✓ 网页来源采集到 {len(web_result_list)} 条（已合并）")
-    all_items = web_result_list + twitter_rss_items + all_items
+    if google_rss_result_list:
+        logger.info(f"✓ Google News RSS 采集到 {len(google_rss_result_list)} 条（已合并）")
+    all_items = web_result_list + google_rss_result_list + twitter_rss_items + all_items
     
     logger.info("\n" + "=" * 60)
     logger.info(f"数据采集完成，共采集 {len(all_items)} 条数据")
@@ -192,21 +240,43 @@ def main():
             logger.warning("注意：不会发送空邮件")
             sys.exit(0)
         
-        # 3. 生成报告总结（一段话）
+        # 3. 生成报告总结（DeepSeek-R1 带思考，单次约 4000 token）
         logger.info("\n" + "=" * 60)
         logger.info("生成报告与总结")
         logger.info("=" * 60)
         report_summary = None
+        report_reasoning = ""
         try:
             from config import settings
             if settings.GITHUB_TOKEN:
-                report_summary = generate_report_summary(processed_items)
+                result = generate_report_summary_with_reasoning(processed_items)
+                report_summary = result.get("summary") or None
+                report_reasoning = result.get("reasoning") or ""
                 if report_summary:
                     logger.info("✓ 报告总结生成完成")
         except Exception as e:
             logger.warning(f"报告总结生成失败（不影响报告）: {e}")
-        
-        html_report = build_html_report(processed_items, report_summary=report_summary)
+
+        # 股票简析（涨跌原因、可关注、建议规避）
+        stock_analysis = None
+        try:
+            if settings.GITHUB_TOKEN:
+                stock_analysis = generate_stock_analysis(processed_items)
+                if stock_analysis:
+                    logger.info("✓ 股票简析生成完成")
+        except Exception as e:
+            logger.warning(f"股票简析生成失败（不影响报告）: {e}")
+
+        # 收集数据来源列表（用于报告内默认折叠展示）
+        data_sources = _collect_data_sources()
+
+        html_report = build_html_report(
+            processed_items,
+            report_summary=report_summary,
+            reasoning=report_reasoning,
+            data_sources=data_sources,
+            stock_analysis=stock_analysis,
+        )
         logger.info("✓ HTML 报告生成完成")
         
         # 4. 发送邮件

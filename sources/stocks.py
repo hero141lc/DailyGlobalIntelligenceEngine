@@ -183,11 +183,12 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
     """
     surge_stocks: List[Dict] = []
     
-    # 只取前 20 大市值股票（减少请求，提高成功率）
-    popular_symbols = [
+    # 使用配置的关注列表（含七姐妹/维谛/美光/甲骨文等），无则用默认
+    popular_symbols = getattr(settings, "STOCK_WATCHLIST", None) or [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
         "BRK-B", "V", "UNH", "JNJ", "WMT", "JPM", "MA", "PG",
-        "HD", "DIS", "BAC", "ADBE", "NFLX"
+        "HD", "DIS", "BAC", "ADBE", "NFLX", "VRT", "MU", "ORCL", "INTC", "AMD",
+        "XOM", "CVX", "CRM",
     ]
     
     for symbol in popular_symbols:
@@ -230,10 +231,11 @@ def get_daily_movers(top_n: int = 5) -> List[Dict]:
     """
     获取今日涨跌一览：涨幅前 top_n 与跌幅前 top_n 的个股（不设阈值，丰富股票板块）。
     """
-    popular_symbols = [
+    popular_symbols = getattr(settings, "STOCK_WATCHLIST", None) or [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
         "BRK-B", "V", "UNH", "JNJ", "WMT", "JPM", "MA", "PG",
         "HD", "DIS", "BAC", "ADBE", "NFLX", "CRM", "ORCL", "INTC", "AMD",
+        "VRT", "MU", "XOM", "CVX",
     ]
     all_data: List[Dict] = []
     for symbol in popular_symbols:

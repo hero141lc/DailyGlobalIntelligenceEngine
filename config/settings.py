@@ -146,6 +146,29 @@ RSS_SOURCES: Dict[str, List[str]] = {
     "twitter_trump": [
         "https://news.google.com/rss/search?q=from:realDonaldTrump+site:x.com&hl=en-US&gl=US&ceid=US:en",
     ],
+    # 知名企业：维谛技术、美光、甲骨文、七姐妹等财报/订单/技术/CEO 访华
+    "corporate": [
+        "https://news.google.com/rss/search?q=Vertiv+earnings+order&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Micron+Oracle+earnings+revenue&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Big+Oil+CEO+China+visit+Exxon+Chevron&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=tech+giant+earnings+forecast+quarterly&hl=en-US&gl=US&ceid=US:en",
+    ],
+    # 关键人物：黄仁勋、英特尔、谷歌等官媒/实时
+    "key_figures": [
+        "https://news.google.com/rss/search?q=Jensen+Huang+NVIDIA&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Intel+CEO+Pat+Gelsinger&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Google+Alphabet+Sundar+Pichai&hl=en-US&gl=US&ceid=US:en",
+    ],
+    # 地缘政治
+    "geopolitics": [
+        "https://news.google.com/rss/search?q=US+China+geopolitics+trade&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Russia+Ukraine+NATO+sanctions&hl=en-US&gl=US&ceid=US:en",
+    ],
+    # 美国专业机构/量化/研报
+    "institutional": [
+        "https://news.google.com/rss/search?q=institutional+investor+quant+hedge+fund&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=research+report+analyst+rating+stock&hl=en-US&gl=US&ceid=US:en",
+    ],
 }
 
 # 股票配置（Stooq 格式）
@@ -156,6 +179,14 @@ STOCK_INDICES = {
     "Russell 2000": "^RUT",
     "VIX": "^VIX",
 }
+# 重点关注个股：七姐妹(油)、维谛/美光/甲骨文/黄仁勋等
+STOCK_WATCHLIST = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+    "VRT", "MU", "ORCL", "INTC", "AMD", "CRM",
+    "XOM", "CVX", "COP", "SLB", "EOG", "PXD", "MPC",
+    "JPM", "BAC", "WMT", "JNJ", "UNH", "HD", "DIS",
+    "BRK-B", "V", "MA", "PG", "ADBE", "NFLX",
+]
 
 # 大涨个股阈值（百分比）
 STOCK_SURGE_THRESHOLD = 7.0
@@ -165,10 +196,33 @@ STOCK_DAILY_MOVERS_TOP = 5
 
 # LLM 配置（扩大 token 以支持更长摘要与总结）
 LLM_MODEL = "gpt-4o-mini"
-LLM_MAX_TOKENS = 12000
+LLM_MAX_TOKENS = 4000
 LLM_TEMPERATURE = 0.3
 
 # 采集限制
 MAX_TWEETS_PER_USER = 5
 MAX_ITEMS_PER_SOURCE = 20
+
+# Google News RSS 统一函数：预设与任务（独立线程，每次请求间隔 1 秒）
+# 预设：全球中文 24h / 全球英文 24h / 按话题（topic 需配合 topic_keywords）
+GOOGLE_NEWS_PRESETS: Dict[str, Dict[str, str]] = {
+    "en": {"hl": "en-US", "gl": "US", "ceid": "US:en"}
+}
+# 任务列表：每项 preset, topic_keywords(可选), keywords_filter(可选), category, max_items(可选)
+GOOGLE_NEWS_TASKS: List[Dict] = [
+    {"preset": "en", "category": "世界新闻", "keywords_filter": []},
+    {"preset": "topic", "topic_keywords": ["Vertiv", "Micron", "Oracle", "earnings"], "category": "知名企业/财报", "max_items": 15},
+    {"preset": "topic", "topic_keywords": ["Big Oil", "CEO", "China", "visit"], "category": "知名企业/财报", "max_items": 10},
+    {"preset": "topic", "topic_keywords": ["Jensen Huang", "NVIDIA"], "category": "关键人物", "max_items": 10},
+    {"preset": "topic", "topic_keywords": ["Intel", "Google", "Alphabet"], "category": "关键人物", "max_items": 10},
+    {"preset": "topic", "topic_keywords": ["geopolitics", "US", "China"], "category": "地缘政治", "max_items": 12},
+    {"preset": "topic", "topic_keywords": ["institutional", "quant", "research", "report"], "category": "机构研报", "max_items": 10},
+]
+GOOGLE_NEWS_REQUEST_INTERVAL = 1  # 秒
+
+# 日报总结：使用 DeepSeek-R1 带思考，单次请求控制在约 4000 token（输入+输出）
+REPORT_SUMMARY_MODEL = os.getenv("REPORT_SUMMARY_MODEL", "deepseek-reasoner")
+REPORT_SUMMARY_MAX_INPUT_ITEMS = 35
+REPORT_SUMMARY_MAX_TOKENS = 4000
+REPORT_SUMMARY_MAX_INPUT_CHARS_PER_ITEM = 80
 

@@ -180,6 +180,8 @@ def _call_github_models(
     messages: List[Dict],
     max_tokens: int = None,
     max_retries: int = 3,
+    model: str = None,
+    extra_body: Optional[Dict] = None,
 ) -> Optional[str]:
     """调用 GitHub Models API，返回 content 文本。"""
     github_token = settings.GITHUB_TOKEN
@@ -191,11 +193,13 @@ def _call_github_models(
         "Content-Type": "application/json",
     }
     data = {
-        "model": settings.GITHUB_MODEL_NAME,
+        "model": model or settings.GITHUB_MODEL_NAME,
         "messages": messages,
         "max_tokens": max_tokens or settings.LLM_MAX_TOKENS,
         "temperature": settings.LLM_TEMPERATURE,
     }
+    if extra_body:
+        data.update(extra_body)
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=data, timeout=60)
@@ -225,6 +229,64 @@ def _call_github_models(
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
     return None  # 所有重试后仍未返回则返回 None
+
+
+def _call_github_models_with_reasoning(
+    messages: List[Dict],
+    max_tokens: int,
+    model: str,
+    max_retries: int = 3,
+) -> Dict[str, str]:
+    """调用 DeepSeek-R1 等带思考的模型，返回 {"summary": content, "reasoning": reasoning_content}。"""
+    github_token = settings.GITHUB_TOKEN
+    out = {"summary": "", "reasoning": ""}
+    if not github_token or not isinstance(github_token, str) or not github_token.strip():
+        return out
+    url = "https://models.inference.ai.azure.com/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+    # 部分推理模型通过 extra_body 启用 thinking
+    extra = getattr(settings, "REPORT_SUMMARY_EXTRA_BODY", None)
+    if extra:
+        data.update(extra)
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=120)
+            if response.status_code == 401:
+                logger.error("GitHub Models API 认证失败（401）")
+                return out
+            if response.status_code == 400:
+                try:
+                    err_body = (response.text or "")[:500]
+                    logger.warning(f"日报总结 API 请求错误（400）: {err_body}")
+                except Exception:
+                    pass
+                return out
+            if response.status_code == 429:
+                wait_time = 15 + (5 * attempt)
+                logger.warning(f"API 限流（429），{wait_time}s 后重试")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue
+                return out
+            response.raise_for_status()
+            result = response.json()
+            msg = result.get("choices", [{}])[0].get("message", {})
+            out["summary"] = (msg.get("content") or "").strip()
+            out["reasoning"] = (msg.get("reasoning_content") or msg.get("reasoning") or "").strip()
+            return out
+        except Exception as e:
+            logger.warning(f"日报总结 API 调用失败（尝试 {attempt + 1}/{max_retries}）: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+    return out
 
 
 # 每批最多条目数，避免单次请求 token 超限导致 400
@@ -317,13 +379,61 @@ def summarize_batch_unified(items: List[Dict]) -> List[Dict]:
     return items
 
 
+def generate_report_summary_with_reasoning(items: List[Dict]) -> Dict[str, str]:
+    """
+    使用 DeepSeek-R1 等带思考模型生成日报总结，单次请求控制在约 4000 token（输入+输出）。
+    返回 {"summary": 正文, "reasoning": 思考过程}，思考在报告中默认折叠展示。
+    """
+    out = {"summary": "", "reasoning": ""}
+    if not items:
+        return out
+    max_items = getattr(settings, "REPORT_SUMMARY_MAX_INPUT_ITEMS", 35) or 35
+    max_chars = getattr(settings, "REPORT_SUMMARY_MAX_INPUT_CHARS_PER_ITEM", 80) or 80
+    max_tokens = getattr(settings, "REPORT_SUMMARY_MAX_TOKENS", 2000) or 2000
+    model = getattr(settings, "REPORT_SUMMARY_MODEL", "deepseek-reasoner") or "deepseek-reasoner"
+
+    parts = []
+    for i, item in enumerate(items[:max_items], 1):
+        title = (item.get("title") or "")[:max_chars]
+        summary = item.get("summary") or item.get("content") or ""
+        summary = (summary[:max_chars] if summary else "").replace("\n", " ")
+        cat = item.get("category", "")
+        parts.append(f"[{i}] [{cat}] {title} | {summary}")
+    block = "\n".join(parts)
+
+    prompt = f"""你是一位全球科技与金融情报分析师。根据以下今日情报条目，写一长段「今日总结与展望」，要求深度分析、信息密度高。
+
+要求：
+1. 中文，整体为一长串连贯段落（不要分小节标题，不要列表符号）。
+2. 总结部分（前半）：对今日情报做深度分析——概括事实、各条关联、对市场/政策/行业的影响；涵盖知名企业（维谛/美光/甲骨文/七姐妹等）财报与访华、关键人物（黄仁勋/马斯克/特朗普/英特尔/谷歌）、地缘政治、机构研报、商业航天/星链、美联储、股市、能源、黄金、石油、军事、AI 等，按重要性组织。
+3. 预测部分（后半）：基于今日情报，对接下来几日或一周内的可能动向做简明展望。
+4. 总字数约 800～1200 字；直接输出整段文字，不要小标题与编号列表。
+
+今日条目：
+{block}
+
+请直接输出一长段深度总结与展望："""
+    messages = [
+        {"role": "system", "content": "你擅长写详实的每日情报深度总结，并基于情报给出简明展望与预测。"},
+        {"role": "user", "content": prompt},
+    ]
+    result = _call_github_models_with_reasoning(
+        messages, max_tokens=max_tokens, model=model, max_retries=3
+    )
+    return result
+
+
 def generate_report_summary(items: List[Dict]) -> Optional[str]:
     """
     根据当日所有条目生成一长段报告总结（含今日要点与展望预测），用于放在报告最前面。
+    优先使用 DeepSeek-R1 带思考；若未配置或失败则回退到普通模型。
     """
+    result = generate_report_summary_with_reasoning(items)
+    if result.get("summary"):
+        return result["summary"]
+    # 回退：使用原有逻辑（普通模型）
     if not items:
         return None
-    # 每条只用标题 + 已有 summary 或 content 的短片段
     parts = []
     for i, item in enumerate(items[:40], 1):
         title = (item.get("title") or "")[:80]
@@ -351,3 +461,49 @@ def generate_report_summary(items: List[Dict]) -> Optional[str]:
     ]
     summary_cap = getattr(settings, "LLM_MAX_TOKENS", 12000) or 12000
     return _call_github_models(messages, max_tokens=min(summary_cap, 4500))
+
+
+def generate_stock_analysis(items: List[Dict]) -> Optional[str]:
+    """
+    根据当日行情（大涨个股、今日涨跌）与当日情报，生成一段「涨跌原因简析」与「可关注/建议规避」建议。
+    用于报告股票板块下方。
+    """
+    if not items:
+        return None
+    stock_items = [i for i in items if i.get("category") in ("大涨个股", "今日涨跌", "美股市场")]
+    news_snippets = []
+    for i in items[:50]:
+        if i.get("category") in ("大涨个股", "今日涨跌", "美股市场"):
+            continue
+        t = (i.get("title") or "")[:60]
+        c = (i.get("content") or i.get("summary") or "")[:80]
+        if t or c:
+            news_snippets.append(f"[{i.get('category', '')}] {t} | {c}")
+    stock_lines = []
+    for i in stock_items:
+        sym = i.get("symbol") or i.get("name") or i.get("title", "")
+        chg = i.get("change_pct")
+        if chg is not None:
+            stock_lines.append(f"{sym}: {chg:+.2f}%")
+    stock_block = "\n".join(stock_lines[:30]) if stock_lines else "（无当日行情）"
+    news_block = "\n".join(news_snippets[:25]) if news_snippets else "（无）"
+    prompt = f"""你是一位美股分析师。根据以下「当日行情」与「当日要闻摘要」，写一段简短中文分析（约 300～500 字），包含：
+1. 涨跌原因简析：结合要闻解释今日哪些板块/个股为何涨、为何跌。
+2. 可关注方向：推荐 1～3 类或具体标的（如某行业、某龙头），并简述理由。
+3. 建议规避方向：哪些类型或标的建议减仓/观望，并简述理由。
+
+要求：客观、基于给定信息，不要编造；直接输出分析正文，不要小标题与编号。
+
+【当日行情】
+{stock_block}
+
+【当日要闻摘要】
+{news_block}
+
+请直接输出分析正文："""
+    messages = [
+        {"role": "system", "content": "你是美股分析师，根据行情与新闻写简短的涨跌原因与关注/规避建议。"},
+        {"role": "user", "content": prompt},
+    ]
+    max_tok = getattr(settings, "LLM_MAX_TOKENS", 4000) or 4000
+    return _call_github_models(messages, max_tokens=min(max_tok, 800))

@@ -2,7 +2,8 @@
 报告生成器
 按固定模板生成 HTML 邮件内容
 """
-from typing import List, Dict
+import html
+from typing import List, Dict, Optional
 from datetime import datetime
 
 from utils.logger import logger
@@ -15,6 +16,11 @@ PREVIEW_COUNT = 3
 CATEGORY_ORDER = [
     "马斯克",
     "特朗普",
+    "世界新闻",
+    "知名企业/财报",
+    "关键人物",
+    "地缘政治",
+    "机构研报",
     "能源/电力",
     "黄金",
     "石油",
@@ -24,6 +30,8 @@ CATEGORY_ORDER = [
     "美联储",
     "美股市场",
     "大涨个股",
+    "今日涨跌",
+    "股票简析",
     "美股快讯",
     "SEC监管",
 ]
@@ -187,32 +195,96 @@ def format_stocks_section(items: List[Dict]) -> str:
     html += "</div>"
     return html
 
-def build_html_report(items: List[Dict], report_summary: str = None) -> str:
+def _format_data_sources_block(data_sources: List[Dict]) -> str:
+    """数据来源区块：默认折叠，点击展开。"""
+    if not data_sources:
+        return ""
+    rows = []
+    for s in data_sources:
+        name = html.escape(str(s.get("name", "")))
+        url = s.get("url", "")
+        cat = html.escape(str(s.get("category", "")))
+        if url and (url.startswith("http://") or url.startswith("https://")):
+            link = f'<a href="{html.escape(url)}" style="color:#3498db;">{html.escape(url[:80])}{"…" if len(url) > 80 else ""}</a>'
+        else:
+            link = html.escape(url[:100] or "")
+        rows.append(f"<tr><td style=\"padding:6px 10px;border-bottom:1px solid #eee;\">{name}</td><td style=\"padding:6px 10px;border-bottom:1px solid #eee;\">{cat}</td><td style=\"padding:6px 10px;border-bottom:1px solid #eee;word-break:break-all;\">{link}</td></tr>")
+    table = "".join(rows)
+    return f"""
+            <details style="margin-top: 16px;">
+                <summary style="cursor: pointer; color: #3498db; font-size: 13px;">▼ 点击展开查看数据来源列表</summary>
+                <div style="margin-top: 10px; font-size: 13px;">
+                    <table style="width:100%; border-collapse: collapse;">
+                        <thead><tr style="background:#f8f9fa;"><th style="padding:8px 10px;text-align:left;">来源名</th><th style="padding:8px 10px;text-align:left;">分类</th><th style="padding:8px 10px;text-align:left;">URL</th></tr></thead>
+                        <tbody>{table}</tbody>
+                    </table>
+                </div>
+            </details>"""
+
+
+def _format_reasoning_block(reasoning: str) -> str:
+    """模型思考过程区块：默认折叠，点击展开。"""
+    if not reasoning or not reasoning.strip():
+        return ""
+    escaped = html.escape(reasoning.strip()).replace("\n", "<br>\n")
+    return f"""
+            <details style="margin-top: 12px;">
+                <summary style="cursor: pointer; color: #3498db; font-size: 13px;">▼ 点击展开查看模型思考过程</summary>
+                <div style="margin-top: 10px; padding: 12px; background: #f8f9fa; border-radius: 4px; font-size: 13px; color: #555; line-height: 1.6; white-space: pre-wrap;">{escaped}</div>
+            </details>"""
+
+
+def _format_stock_analysis_block(stock_analysis: str) -> str:
+    """股票简析区块：涨跌原因、可关注、建议规避。"""
+    if not stock_analysis or not stock_analysis.strip():
+        return ""
+    escaped = html.escape(stock_analysis.strip()).replace("\n", "<br>\n")
+    return f"""
+    <div style="margin-bottom: 20px;">
+        <h3 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; margin-bottom: 10px;">
+            【股票简析】
+        </h3>
+        <p style="margin: 0; color: #34495e; line-height: 1.7; font-size: 14px;">{escaped}</p>
+    </div>"""
+
+
+def build_html_report(
+    items: List[Dict],
+    report_summary: Optional[str] = None,
+    reasoning: Optional[str] = None,
+    data_sources: Optional[List[Dict]] = None,
+    stock_analysis: Optional[str] = None,
+) -> str:
     """
     构建完整的 HTML 邮件报告
-    
+
     Args:
         items: 所有数据项列表
         report_summary: 可选，报告最前面的「今日总结与展望」长段
-    
+        reasoning: 可选，模型思考过程（默认折叠）
+        data_sources: 可选，数据来源列表，每项含 name/url/category（默认折叠）
+        stock_analysis: 可选，股票涨跌原因与关注/规避建议（一段话）
+
     Returns:
         完整的 HTML 邮件内容
     """
     today = get_today_date()
-    
+
     # 按类别分组
     grouped = group_by_category(items)
-    
+
     # 总结段落（放在标题后、正文最前面）
     summary_block = ""
     if report_summary and report_summary.strip():
+        safe_summary = html.escape(report_summary.strip()).replace("\n", "<br>\n")
         summary_block = f"""
             <div style="margin-bottom: 28px; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #3498db; border-radius: 4px;">
                 <h3 style="color: #2c3e50; margin: 0 0 12px 0; font-size: 16px;">【今日总结与展望】</h3>
-                <p style="margin: 0; color: #34495e; line-height: 1.7; font-size: 14px; white-space: pre-line;">{report_summary.strip()}</p>
+                <p style="margin: 0; color: #34495e; line-height: 1.7; font-size: 14px;">{safe_summary}</p>
             </div>
         """
-    
+    reasoning_block = _format_reasoning_block(reasoning or "")
+
     # 构建 HTML
     html = f"""
     <!DOCTYPE html>
@@ -229,13 +301,20 @@ def build_html_report(items: List[Dict], report_summary: str = None) -> str:
             </h1>
     """
     html += summary_block
+    if reasoning_block:
+        html += reasoning_block
     html += "\n    "
-    
+
     # 按顺序输出各个板块
     for category in CATEGORY_ORDER:
+        if category == "股票简析":
+            if stock_analysis and stock_analysis.strip():
+                html += _format_stock_analysis_block(stock_analysis)
+            continue
+        if category in ["大涨个股", "今日涨跌"]:
+            continue
         if category in grouped and grouped[category]:
-            if category in ["美股市场", "大涨个股", "今日涨跌"]:
-                # 特殊处理美股市场板块（含指数、大涨个股、今日涨跌一览）
+            if category == "美股市场":
                 stocks_items = (
                     grouped.get("美股市场", []) +
                     grouped.get("大涨个股", []) +
@@ -253,17 +332,23 @@ def build_html_report(items: List[Dict], report_summary: str = None) -> str:
     for category, category_items in grouped.items():
         if category not in CATEGORY_ORDER:
             html += format_category_section(category, category_items)
-    
+
+    # 数据来源区块（默认折叠）
+    data_sources_block = _format_data_sources_block(data_sources or [])
+
     html += """
             <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1; text-align: center; color: #95a5a6; font-size: 12px;">
                 <p>本报告由 Daily Global Intelligence Engine 自动生成</p>
-                <p>数据来源：公开 RSS 源、Yahoo Finance、xcancel/Nitter 等</p>
+                <p>数据来源：公开 RSS 源、Google News、Yahoo Finance、网页采集等</p>
+            """
+    html += data_sources_block
+    html += """
             </div>
         </div>
     </body>
     </html>
     """
-    
+
     return html
 
 def build_text_report(items: List[Dict], report_summary: str = None) -> str:
