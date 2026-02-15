@@ -285,8 +285,8 @@ def build_html_report(
         """
     reasoning_block = _format_reasoning_block(reasoning or "")
 
-    # 构建 HTML
-    html = f"""
+    # 构建 HTML（变量名用 report_html 避免遮蔽标准库 html 模块）
+    report_html = f"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -300,16 +300,16 @@ def build_html_report(
                 📌 全球科技与金融情报速览（{today}）
             </h1>
     """
-    html += summary_block
+    report_html += summary_block
     if reasoning_block:
-        html += reasoning_block
-    html += "\n    "
+        report_html += reasoning_block
+    report_html += "\n    "
 
     # 按顺序输出各个板块
     for category in CATEGORY_ORDER:
         if category == "股票简析":
             if stock_analysis and stock_analysis.strip():
-                html += _format_stock_analysis_block(stock_analysis)
+                report_html += _format_stock_analysis_block(stock_analysis)
             continue
         if category in ["大涨个股", "今日涨跌"]:
             continue
@@ -320,36 +320,36 @@ def build_html_report(
                     grouped.get("大涨个股", []) +
                     grouped.get("今日涨跌", [])
                 )
-                html += format_stocks_section(stocks_items)
+                report_html += format_stocks_section(stocks_items)
                 if "大涨个股" in grouped:
                     del grouped["大涨个股"]
                 if "今日涨跌" in grouped:
                     del grouped["今日涨跌"]
             else:
-                html += format_category_section(category, grouped[category])
+                report_html += format_category_section(category, grouped[category])
     
     # 输出其他未分类的板块
     for category, category_items in grouped.items():
         if category not in CATEGORY_ORDER:
-            html += format_category_section(category, category_items)
+            report_html += format_category_section(category, category_items)
 
     # 数据来源区块（默认折叠）
     data_sources_block = _format_data_sources_block(data_sources or [])
 
-    html += """
+    report_html += """
             <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #ecf0f1; text-align: center; color: #95a5a6; font-size: 12px;">
                 <p>本报告由 Daily Global Intelligence Engine 自动生成</p>
                 <p>数据来源：公开 RSS 源、Google News、Yahoo Finance、网页采集等</p>
             """
-    html += data_sources_block
-    html += """
+    report_html += data_sources_block
+    report_html += """
             </div>
         </div>
     </body>
     </html>
     """
 
-    return html
+    return report_html
 
 def build_text_report(items: List[Dict], report_summary: str = None) -> str:
     """
