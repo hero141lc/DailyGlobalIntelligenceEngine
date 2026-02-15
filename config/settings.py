@@ -224,7 +224,7 @@ GOOGLE_NEWS_REQUEST_INTERVAL = 1  # 秒
 
 # 日报总结：使用 DeepSeek-R1 带思考，单次请求控制在约 4000 token（输入+输出）
 # GitHub Models 中模型名为 deepseek/DeepSeek-R1
-REPORT_SUMMARY_MODEL = os.getenv("REPORT_SUMMARY_MODEL", "deepseek/DeepSeek-R1")
+REPORT_SUMMARY_MODEL = os.getenv("REPORT_SUMMARY_MODEL", "deepseek/deepseek-r1")
 REPORT_SUMMARY_MAX_INPUT_ITEMS = 35
 REPORT_SUMMARY_MAX_TOKENS = 4000
 REPORT_SUMMARY_MAX_INPUT_CHARS_PER_ITEM = 80
