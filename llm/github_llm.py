@@ -390,7 +390,7 @@ def generate_report_summary_with_reasoning(items: List[Dict]) -> Dict[str, str]:
     max_items = getattr(settings, "REPORT_SUMMARY_MAX_INPUT_ITEMS", 35) or 35
     max_chars = getattr(settings, "REPORT_SUMMARY_MAX_INPUT_CHARS_PER_ITEM", 80) or 80
     max_tokens = getattr(settings, "REPORT_SUMMARY_MAX_TOKENS", 2000) or 2000
-    model = getattr(settings, "REPORT_SUMMARY_MODEL", "deepseek-reasoner") or "deepseek-reasoner"
+    model = getattr(settings, "REPORT_SUMMARY_MODEL", "deepseek/DeepSeek-R1") or "deepseek/DeepSeek-R1"
 
     parts = []
     for i, item in enumerate(items[:max_items], 1):

@@ -192,7 +192,9 @@ STOCK_WATCHLIST = [
 STOCK_SURGE_THRESHOLD = 7.0
 
 # 今日涨跌一览：取涨跌幅前 N 的个股（无论是否≥大涨阈值），丰富股票板块
-STOCK_DAILY_MOVERS_TOP = 5
+STOCK_DAILY_MOVERS_TOP = 8
+# Stooq 每次请求间隔（秒），避免 GitHub Actions 等环境被限流导致只返回少量股票
+STOOQ_DELAY = 0.5
 
 # LLM 配置（扩大 token 以支持更长摘要与总结）
 LLM_MODEL = "gpt-4o-mini"
@@ -221,7 +223,8 @@ GOOGLE_NEWS_TASKS: List[Dict] = [
 GOOGLE_NEWS_REQUEST_INTERVAL = 1  # 秒
 
 # 日报总结：使用 DeepSeek-R1 带思考，单次请求控制在约 4000 token（输入+输出）
-REPORT_SUMMARY_MODEL = os.getenv("REPORT_SUMMARY_MODEL", "deepseek-reasoner")
+# GitHub Models 中模型名为 deepseek/DeepSeek-R1
+REPORT_SUMMARY_MODEL = os.getenv("REPORT_SUMMARY_MODEL", "deepseek/DeepSeek-R1")
 REPORT_SUMMARY_MAX_INPUT_ITEMS = 35
 REPORT_SUMMARY_MAX_TOKENS = 4000
 REPORT_SUMMARY_MAX_INPUT_CHARS_PER_ITEM = 80

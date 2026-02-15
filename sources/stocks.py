@@ -15,6 +15,7 @@ from utils.logger import logger
 from utils.time import get_today_date
 
 STOOQ_RETRIES = 3  # Stooq 请求失败时重试次数
+STOOQ_DELAY = 0.5  # 每次请求间隔（秒），避免 Actions 环境被限流导致只返回少量股票
 
 def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
     """
@@ -191,7 +192,9 @@ def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
         "XOM", "CVX", "CRM",
     ]
     
-    for symbol in popular_symbols:
+    for i, symbol in enumerate(popular_symbols):
+        if i > 0:
+            time.sleep(getattr(settings, "STOOQ_DELAY", 0.5) or 0.5)
         try:
             stock_data = get_stock_data_stooq(symbol)
             if not stock_data:
@@ -238,7 +241,9 @@ def get_daily_movers(top_n: int = 5) -> List[Dict]:
         "VRT", "MU", "XOM", "CVX",
     ]
     all_data: List[Dict] = []
-    for symbol in popular_symbols:
+    for i, symbol in enumerate(popular_symbols):
+        if i > 0:
+            time.sleep(getattr(settings, "STOOQ_DELAY", 0.5) or 0.5)
         try:
             d = get_stock_data_stooq(symbol)
             if d:
