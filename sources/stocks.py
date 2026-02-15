@@ -1,21 +1,25 @@
 """
 美股市场数据采集模块
 采集主要指数和大涨个股（≥7%）
-完全使用 Stooq API（无反爬，更稳定）
+个股优先用 yfinance 一次批量拉取，失败时回退 Stooq 逐只请求
 """
 import time
 import requests
 import csv
 import io
 from typing import List, Dict, Optional
-from datetime import datetime, timezone
 
 from config import settings
 from utils.logger import logger
 from utils.time import get_today_date
 
+try:
+    import pandas as pd
+except ImportError:
+    pd = None  # type: ignore
+
 STOOQ_RETRIES = 3  # Stooq 请求失败时重试次数
-STOOQ_DELAY = 0.5  # 每次请求间隔（秒），避免 Actions 环境被限流导致只返回少量股票
+STOOQ_DELAY = 0.5  # 每次请求间隔（秒），仅回退时使用
 
 def get_index_data_stooq(symbol: str, name: str) -> Optional[Dict]:
     """
@@ -115,6 +119,76 @@ def _get_index_fallback_yahoo(symbol: str, name: str) -> Optional[Dict]:
         logger.debug(f"Yahoo 指数回退失败 {symbol}: {e}")
         return None
 
+def get_stocks_batch_yfinance(symbols: List[str]) -> List[Dict]:
+    """
+    使用 yfinance 一次请求拉取多只股票最近行情，返回与 get_stock_data_stooq 兼容的列表。
+    每项为 {symbol, close, change_pct, name}，失败或数据不足的标的跳过。
+    """
+    if not symbols:
+        return []
+    if pd is None:
+        return []
+    try:
+        import yfinance as yf
+        sym_list = [s.strip() for s in symbols if s and str(s).strip()]
+        if not sym_list:
+            return []
+        # 一次下载所有标的，period=5d 取最近 5 日用于算涨跌；group_by='ticker' 列为 (Ticker, OHLCV)
+        df = yf.download(
+            sym_list,
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            auto_adjust=True,
+            threads=True,
+            progress=False,
+            timeout=30,
+        )
+        if df is None or df.empty or len(df) < 2:
+            return []
+        out: List[Dict] = []
+        # 多标的：列为 MultiIndex 第一层为 Ticker
+        if hasattr(df.columns, "get_level_values") and df.columns.nlevels >= 2:
+            tickers = df.columns.get_level_values(0).unique().tolist()
+            for sym in tickers:
+                try:
+                    close_ser = df[sym]["Close"]
+                    if close_ser is None or close_ser.empty or len(close_ser) < 2:
+                        continue
+                    close_ser = close_ser.dropna()
+                    if len(close_ser) < 2:
+                        continue
+                    latest = float(close_ser.iloc[-1])
+                    prev = float(close_ser.iloc[-2])
+                    if prev == 0:
+                        continue
+                    change_pct = ((latest - prev) / prev) * 100
+                    out.append({"symbol": sym, "close": latest, "change_pct": change_pct, "name": sym})
+                except Exception as e:
+                    logger.debug(f"yfinance 解析 {sym} 失败: {e}")
+        else:
+            # 单标的：列为 Open, High, Low, Close, ...
+            try:
+                close_ser = df["Close"].dropna() if "Close" in df.columns else None
+                if close_ser is not None and len(close_ser) >= 2:
+                    latest = float(close_ser.iloc[-1])
+                    prev = float(close_ser.iloc[-2])
+                    if prev != 0:
+                        sym = sym_list[0]
+                        out.append({
+                            "symbol": sym,
+                            "close": latest,
+                            "change_pct": ((latest - prev) / prev) * 100,
+                            "name": sym,
+                        })
+            except Exception as e:
+                logger.debug(f"yfinance 单标的解析失败: {e}")
+        return out
+    except Exception as e:
+        logger.warning(f"yfinance 批量拉取失败: {e}")
+        return []
+
+
 def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
     """
     使用 Stooq 获取个股数据
@@ -174,65 +248,66 @@ def get_stock_data_stooq(symbol: str) -> Optional[Dict]:
 def get_surge_stocks(threshold: float = 7.0) -> List[Dict]:
     """
     获取大涨个股（涨幅≥阈值）
-    只取前 20 大市值股票，使用 Stooq API，允许失败，不阻断流程
-    
-    Args:
-        threshold: 涨幅阈值（百分比）
-    
-    Returns:
-        大涨个股列表
+    优先用 yfinance 一次批量拉取，失败或数据不足时回退 Stooq 逐只请求
     """
-    surge_stocks: List[Dict] = []
-    
-    # 使用配置的关注列表（含七姐妹/维谛/美光/甲骨文等），无则用默认
     popular_symbols = getattr(settings, "STOCK_WATCHLIST", None) or [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
         "BRK-B", "V", "UNH", "JNJ", "WMT", "JPM", "MA", "PG",
         "HD", "DIS", "BAC", "ADBE", "NFLX", "VRT", "MU", "ORCL", "INTC", "AMD",
         "XOM", "CVX", "CRM",
     ]
-    
+    surge_stocks: List[Dict] = []
+    batch = get_stocks_batch_yfinance(popular_symbols)
+    if batch:
+        for d in batch:
+            change_pct = d["change_pct"]
+            if change_pct >= threshold:
+                sym = d["symbol"]
+                surge_stocks.append({
+                    "category": "大涨个股",
+                    "title": f"{sym} +{change_pct:.2f}%",
+                    "content": f"{sym} 涨幅 {change_pct:+.2f}%，原因：市场表现强劲",
+                    "source": "Yahoo Finance",
+                    "url": f"https://finance.yahoo.com/quote/{sym}",
+                    "published_at": get_today_date(),
+                    "change_pct": change_pct,
+                    "close": d.get("close"),
+                    "symbol": sym,
+                })
+        surge_stocks.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
+        logger.info(f"发现 {len(surge_stocks)} 只大涨个股（≥{threshold}%），来源：批量拉取")
+        return surge_stocks
+    # 回退：Stooq 逐只请求
     for i, symbol in enumerate(popular_symbols):
         if i > 0:
             time.sleep(getattr(settings, "STOOQ_DELAY", 0.5) or 0.5)
         try:
             stock_data = get_stock_data_stooq(symbol)
-            if not stock_data:
+            if not stock_data or stock_data["change_pct"] < threshold:
                 continue
-            
             change_pct = stock_data["change_pct"]
-            
-            # 只保留涨幅≥阈值的股票
-            if change_pct >= threshold:
-                # Stooq 不提供新闻，使用通用原因
-                reason = "市场表现强劲"
-                
-                surge_stocks.append({
-                    "category": "大涨个股",
-                    "title": f"{symbol} +{change_pct:.2f}%",
-                    "content": f"{symbol} 涨幅 {change_pct:+.2f}%，原因：{reason}",
-                    "source": "Stooq",
-                    "url": f"https://stooq.com/q/?s={symbol}",
-                    "published_at": get_today_date(),
-                    "change_pct": change_pct,
-                    "close": stock_data.get("close"),
-                    "symbol": symbol,
-                })
+            surge_stocks.append({
+                "category": "大涨个股",
+                "title": f"{symbol} +{change_pct:.2f}%",
+                "content": f"{symbol} 涨幅 {change_pct:+.2f}%，原因：市场表现强劲",
+                "source": "Stooq",
+                "url": f"https://stooq.com/q/?s={symbol}",
+                "published_at": get_today_date(),
+                "change_pct": change_pct,
+                "close": stock_data.get("close"),
+                "symbol": symbol,
+            })
         except Exception as e:
-            # 个股失败不影响整体流程
             logger.debug(f"获取股票 {symbol} 数据失败: {e}")
-            continue
-    
-    # 按涨幅排序
     surge_stocks.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
-    
-    logger.info(f"发现 {len(surge_stocks)} 只大涨个股（≥{threshold}%）")
+    logger.info(f"发现 {len(surge_stocks)} 只大涨个股（≥{threshold}%），来源：Stooq 回退")
     return surge_stocks
 
 
 def get_daily_movers(top_n: int = 5) -> List[Dict]:
     """
-    获取今日涨跌一览：涨幅前 top_n 与跌幅前 top_n 的个股（不设阈值，丰富股票板块）。
+    获取今日涨跌一览：涨幅前 top_n 与跌幅前 top_n 的个股。
+    优先用 yfinance 一次批量拉取，失败时回退 Stooq 逐只请求。
     """
     popular_symbols = getattr(settings, "STOCK_WATCHLIST", None) or [
         "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
@@ -241,25 +316,43 @@ def get_daily_movers(top_n: int = 5) -> List[Dict]:
         "VRT", "MU", "XOM", "CVX",
     ]
     all_data: List[Dict] = []
-    for i, symbol in enumerate(popular_symbols):
-        if i > 0:
-            time.sleep(getattr(settings, "STOOQ_DELAY", 0.5) or 0.5)
-        try:
-            d = get_stock_data_stooq(symbol)
-            if d:
-                all_data.append({
-                    "category": "今日涨跌",
-                    "title": f"{d['symbol']} {d['change_pct']:+.2f}%",
-                    "content": f"{d['symbol']} 收盘 {d.get('close', 0):.2f}，涨跌 {d['change_pct']:+.2f}%",
-                    "source": "Stooq",
-                    "url": f"https://stooq.com/q/?s={symbol}",
-                    "published_at": get_today_date(),
-                    "change_pct": d["change_pct"],
-                    "close": d.get("close"),
-                    "symbol": d["symbol"],
-                })
-        except Exception:
-            continue
+    batch = get_stocks_batch_yfinance(popular_symbols)
+    if batch:
+        for d in batch:
+            sym = d["symbol"]
+            chg = d["change_pct"]
+            close = d.get("close", 0)
+            all_data.append({
+                "category": "今日涨跌",
+                "title": f"{sym} {chg:+.2f}%",
+                "content": f"{sym} 收盘 {close:.2f}，涨跌 {chg:+.2f}%",
+                "source": "Yahoo Finance",
+                "url": f"https://finance.yahoo.com/quote/{sym}",
+                "published_at": get_today_date(),
+                "change_pct": chg,
+                "close": close,
+                "symbol": sym,
+            })
+    if not all_data:
+        for i, symbol in enumerate(popular_symbols):
+            if i > 0:
+                time.sleep(getattr(settings, "STOOQ_DELAY", 0.5) or 0.5)
+            try:
+                d = get_stock_data_stooq(symbol)
+                if d:
+                    all_data.append({
+                        "category": "今日涨跌",
+                        "title": f"{d['symbol']} {d['change_pct']:+.2f}%",
+                        "content": f"{d['symbol']} 收盘 {d.get('close', 0):.2f}，涨跌 {d['change_pct']:+.2f}%",
+                        "source": "Stooq",
+                        "url": f"https://stooq.com/q/?s={symbol}",
+                        "published_at": get_today_date(),
+                        "change_pct": d["change_pct"],
+                        "close": d.get("close"),
+                        "symbol": d["symbol"],
+                    })
+            except Exception:
+                continue
     all_data.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
     gainers = all_data[:top_n]
     gainer_symbols = {g["symbol"] for g in gainers}
@@ -271,7 +364,7 @@ def get_daily_movers(top_n: int = 5) -> List[Dict]:
         result.append({**g, "sub_label": "涨幅"})
     for L in losers:
         result.append({**L, "sub_label": "跌幅", "category": "今日涨跌"})
-    logger.info(f"今日涨跌一览：涨幅 {len(gainers)} 只，跌幅 {len(losers)} 只")
+    logger.info(f"今日涨跌一览：涨幅 {len(gainers)} 只，跌幅 {len(losers)} 只（共 {len(all_data)} 只面板）")
     return result
 
 
