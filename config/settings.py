@@ -178,21 +178,37 @@ STOCK_INDICES = {
     "DOW": "^DJI",
     "Russell 2000": "^RUT",
     "VIX": "^VIX",
+    "纳指100": "^NDX",  # 纳斯达克 100
+    "费城半导体": "^SOX",  # 半导体指数
 }
-# 重点关注个股：七姐妹(油)、维谛/美光/甲骨文/黄仁勋等
+# 重点关注个股：七姐妹(油)、维谛/美光/甲骨文/半导体/生物医药/消费/工业等
 STOCK_WATCHLIST = [
+    # 科技与七姐妹
     "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
-    "VRT", "MU", "ORCL", "INTC", "AMD", "CRM",
-    "XOM", "CVX", "COP", "SLB", "EOG", "PXD", "MPC",
-    "JPM", "BAC", "WMT", "JNJ", "UNH", "HD", "DIS",
-    "BRK-B", "V", "MA", "PG", "ADBE", "NFLX",
+    "VRT", "MU", "ORCL", "INTC", "AMD", "CRM", "ADBE", "NFLX",
+    # 半导体与硬件
+    "AVGO", "QCOM", "TSM", "ASML", "AMAT", "LRCX", "KLAC", "MRVL", "ARM", "SMCI",
+    # 软件与云/安全
+    "PANW", "CRWD", "SNOW", "DDOG", "NET", "NOW", "INTU",
+    # 能源（七姐妹 + 油服）
+    "XOM", "CVX", "COP", "SLB", "EOG", "PXD", "MPC", "OXY", "DVN", "HAL",
+    # 金融
+    "JPM", "BAC", "GS", "MS", "C", "SCHW", "AXP", "BLK",
+    # 消费与零售
+    "WMT", "COST", "TGT", "HD", "NKE", "SBUX", "MCD", "DIS",
+    # 医药与生物科技
+    "JNJ", "UNH", "LLY", "ABBV", "MRK", "PFE", "BMY", "REGN", "VRTX", "MRNA",
+    # 工业与军工
+    "CAT", "DE", "LMT", "RTX", "HON", "GE", "UPS", "BA",
+    # 其他大盘
+    "BRK-B", "V", "MA", "PG", "IBM", "CSCO", "TXN",
 ]
 
 # 大涨个股阈值（百分比）
 STOCK_SURGE_THRESHOLD = 7.0
 
 # 今日涨跌一览：取涨跌幅前 N 的个股（无论是否≥大涨阈值），丰富股票板块
-STOCK_DAILY_MOVERS_TOP = 8
+STOCK_DAILY_MOVERS_TOP = 12
 # Stooq 每次请求间隔（秒），避免 GitHub Actions 等环境被限流导致只返回少量股票
 STOOQ_DELAY = 0.5
 
