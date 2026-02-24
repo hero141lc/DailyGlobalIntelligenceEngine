@@ -224,11 +224,24 @@ MAX_ITEMS_PER_SOURCE = 20
 # Google News RSS 统一函数：预设与任务（独立线程，每次请求间隔 1 秒）
 # 预设：全球中文 24h / 全球英文 24h / 按话题（topic 需配合 topic_keywords）
 GOOGLE_NEWS_PRESETS: Dict[str, Dict[str, str]] = {
-    "en": {"hl": "en-US", "gl": "US", "ceid": "US:en"}
+    "en": {"hl": "en-US", "gl": "US", "ceid": "US:en"},
 }
-# 任务列表：每项 preset, topic_keywords(可选), keywords_filter(可选), category, max_items(可选)
+# 任务列表：仅英文信源（中文为二手数据不采集）；每项 preset, topic_keywords(可选), category, max_items(可选)
 GOOGLE_NEWS_TASKS: List[Dict] = [
     {"preset": "en", "category": "世界新闻", "keywords_filter": []},
+    # 产业链与涨价（MLCC/被动元件/券商纪要式信息，重要前置）
+    {"preset": "topic", "topic_keywords": ["MLCC", "capacitor", "price increase", "Murata", "Yageo", "passive component"], "category": "产业链与涨价", "max_items": 10},
+    # 商业航天产业链（发动机、抗干扰芯片等）
+    {"preset": "topic", "topic_keywords": ["rocket engine", "commercial space", "Starlink", "antenna", "chip"], "category": "商业航天产业链", "max_items": 10},
+    # 机器人产业链（伺服、丝杠、人形机器人）
+    {"preset": "topic", "topic_keywords": ["servo", "ball screw", "humanoid robot", "harmonic drive"], "category": "机器人产业链", "max_items": 10},
+    # 英伟达/特斯拉/谷歌与国内订单
+    {"preset": "topic", "topic_keywords": ["NVIDIA", "order", "Tesla", "order", "Google", "order", "China", "domestic order"], "category": "大厂与国内订单", "max_items": 12},
+    # 储能订单
+    {"preset": "topic", "topic_keywords": ["energy storage", "BESS", "storage order", "storage tender"], "category": "储能订单", "max_items": 10},
+    # 太空光伏
+    {"preset": "topic", "topic_keywords": ["space solar", "SPS", "orbital solar", "space-based solar"], "category": "太空光伏", "max_items": 8},
+    # 原有任务
     {"preset": "topic", "topic_keywords": ["Vertiv", "Micron", "Oracle", "earnings"], "category": "知名企业/财报", "max_items": 15},
     {"preset": "topic", "topic_keywords": ["Big Oil", "CEO", "China", "visit"], "category": "知名企业/财报", "max_items": 10},
     {"preset": "topic", "topic_keywords": ["Jensen Huang", "NVIDIA"], "category": "关键人物", "max_items": 10},
