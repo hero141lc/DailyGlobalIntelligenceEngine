@@ -235,6 +235,12 @@ GOOGLE_NEWS_TASKS: List[Dict] = [
     {"preset": "topic", "topic_keywords": ["rocket engine", "commercial space", "Starlink", "antenna", "chip"], "category": "商业航天产业链", "max_items": 10},
     # 机器人产业链（伺服、丝杠、人形机器人）
     {"preset": "topic", "topic_keywords": ["servo", "ball screw", "humanoid robot", "harmonic drive"], "category": "机器人产业链", "max_items": 10},
+    # 国内科技/华为（华为、小米、比亚迪、中兴、荣耀等，与国外大厂并列）
+    {"preset": "topic", "topic_keywords": ["Huawei", "China tech", "HarmonyOS", "Xiaomi", "BYD", "ZTE", "Honor"], "category": "国内科技/华为", "max_items": 12},
+    # 国内AI应用（与国外 AI 应用板块对应）
+    {"preset": "topic", "topic_keywords": ["China AI", "Baidu AI", "Alibaba AI", "Tencent AI", "Chinese AI", "Kimi", "DeepSeek"], "category": "国内AI应用", "max_items": 10},
+    # 国内商业航天（与国外商业航天对应：长征、星河动力、星际荣耀、蓝箭等）
+    {"preset": "topic", "topic_keywords": ["China commercial space", "CASC", "Galactic Energy", "LandSpace", "i-Space", "Chinese rocket", "Long March"], "category": "国内商业航天", "max_items": 10},
     # 英伟达/特斯拉/谷歌与国内订单
     {"preset": "topic", "topic_keywords": ["NVIDIA", "order", "Tesla", "order", "Google", "order", "China", "domestic order"], "category": "大厂与国内订单", "max_items": 12},
     # 储能订单
