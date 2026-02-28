@@ -36,6 +36,10 @@ if RECIPIENT_EMAIL_RAW and RECIPIENT_EMAIL_RAW.strip():
 else:
     RECIPIENT_EMAIL = []
 
+# 飞书推送（可选）：配置 Webhook 后日报会推送到对应群聊
+# 在飞书群组 → 设置 → 群机器人 → 添加自定义机器人 → 复制 Webhook 地址
+FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", "").strip()
+
 # LLM API 配置 - 使用 GitHub 提供的模型
 # GitHub Actions 会自动提供 GITHUB_TOKEN 环境变量（通过 github.token）
 # 也可以手动在 Secrets 中配置 GITHUB_TOKEN

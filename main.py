@@ -13,6 +13,7 @@ from sources import web_sources, commodities_military, rss_extra, twitter
 from llm.github_llm import summarize_batch_unified, generate_report_summary_with_reasoning, generate_stock_analysis
 from formatter.report_builder import build_html_report
 from mail.mailer import send_report
+from mail.feishu import send_report_to_feishu
 
 
 def _collect_data_sources() -> List[Dict]:
@@ -285,6 +286,13 @@ def main():
         logger.info("=" * 60)
         
         success = send_report(html_report)
+
+        # 若配置了飞书 Webhook，同步推送日报摘要到飞书群（失败不影响主流程）
+        try:
+            if getattr(settings, "FEISHU_WEBHOOK_URL", ""):
+                send_report_to_feishu(html_report, report_summary=report_summary)
+        except Exception as e:
+            logger.warning("飞书推送失败（不影响邮件）: %s", e)
         
         if success:
             logger.info("\n" + "=" * 60)
