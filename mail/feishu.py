@@ -44,7 +44,7 @@ def send_report_to_feishu(
     """
     webhook = getattr(settings, "FEISHU_WEBHOOK_URL", None) or ""
     if not webhook or not webhook.startswith("http"):
-        logger.debug("未配置 FEISHU_WEBHOOK_URL，跳过飞书推送")
+        logger.info("未配置 FEISHU_WEBHOOK_URL，跳过飞书推送")
         return False
 
     if not title:
