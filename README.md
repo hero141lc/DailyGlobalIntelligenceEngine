@@ -1,38 +1,67 @@
 # Daily Global Intelligence Engine (DGIE)
 
-全球科技与金融情报自动汇总系统
+全球科技与金融情报自动汇总系统，支持**全球日报 / 股票情报 / 煤炭情报**等多种模式，通过配置切换数据源、报告格式与推送渠道，无需改代码。
 
 ## 项目简介
 
-基于 GitHub Actions 的自动化情报系统，每天定时采集、处理和发送全球科技与金融情报日报。完全零运行成本，无需服务器，无需付费 API（LLM 摘要功能需要 OpenAI API Key，可选）。
+基于 **GitHub Actions** 的 Serverless 情报机器人：
+
+- **零服务器**：定时在 GitHub 上运行，无需自建机器
+- **配置驱动**：通过环境变量切换报告模式（`daily_intel` / `stock` / `coal` / `both`）和推送渠道（邮件 / 飞书 / 企业微信）
+- **可扩展**：新增一种情报类型时，只需加配置与对应数据源、报告模板
 
 ## 功能特性
 
-每天自动采集以下 8 个情报板块：
+### 报告模式（REPORT_MODE）
 
-1. **马斯克（Elon Musk）**最新公开言论
-2. **特朗普（Donald Trump）**最新公开言论
-3. **欧美电力/能源**相关动态
-4. **AI 应用**（产品/商业化，排除纯论文）
-5. **商业航天**（SpaceX / Starlink / 发射 / 合同）
-6. **美联储**（FOMC / 官员表态 / 政策信号）
-7. **美股主要指数**（S&P500 / NASDAQ / DOW）
-8. **美股大涨个股**（涨幅≥7%）及原因归因
+| 模式 | 说明 | 数据源 | 推送 |
+|------|------|--------|------|
+| **daily_intel**（默认） | 全球科技与金融日报 | 能源、AI、航天、美联储、美股、RSS 快讯等 | 邮件、飞书、企业微信（按 PUSH_CHANNELS） |
+| **stock** | 股票情报 | 美股指数、大涨/涨跌个股、美股快讯、SEC、美联储 | 同上 |
+| **coal** | 煤炭情报 | 港口煤价、产地坑口、电厂库存、煤炭政策 RSS | 仅企业微信 |
+| **both** | 同时运行日报 + 煤炭 | 先跑 daily_intel 再跑 coal | 日报→邮件/飞书；煤炭→企业微信 |
+
+### 推送渠道（PUSH_CHANNELS）
+
+- **email**：SMTP 发送 HTML 邮件（支持 Gmail 等）
+- **feishu**：飞书群机器人 Webhook
+- **wecom**：企业微信群机器人 Webhook（Markdown 消息）
+
+### 每日采集内容（daily_intel 模式）
+
+- 马斯克 / 特朗普 最新公开言论
+- 欧美电力 / 能源、AI 应用、商业航天、美联储
+- 美股主要指数、大涨个股（≥7%）、今日涨跌
+- 产业链与涨价、国内科技/华为、储能订单、地缘政治等（Google News RSS）
 
 ## 系统架构
 
 ```
-GitHub Actions (定时触发)
-    ↓
-数据采集层 (RSS / API)
-    ↓
-结构化处理 (去重 / 过滤)
-    ↓
-LLM 中文摘要 (可选)
-    ↓
-报告生成 (HTML 邮件)
-    ↓
-邮件发送
+                    ┌─────────────────────────────────────┐
+                    │  config.settings                      │
+                    │  REPORT_MODE / PUSH_CHANNELS /       │
+                    │  MODE_SOURCES / WECOM_WEBHOOK 等     │
+                    └──────────────┬──────────────────────┘
+                                   │
+  GitHub Actions (定时/手动)        ▼
+        │                  ┌──────────────┐
+        │                  │ 数据采集      │  按 MODE_SOURCES 只跑启用源
+        │                  └──────┬───────┘
+        │                         ▼
+        └────────────────► 处理（去重/摘要/LLM）
+                                   │
+                                   ▼
+                    ┌──────────────┴──────────────┐
+                    │ 报告生成                      │
+                    │ daily_intel → HTML           │
+                    │ stock / coal → Markdown       │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────┴──────────────┐
+                    │ 推送（按 PUSH_CHANNELS）     │
+                    │ email / feishu / wecom       │
+                    └─────────────────────────────┘
 ```
 
 ## 快速开始
@@ -41,139 +70,125 @@ LLM 中文摘要 (可选)
 
 ```bash
 git clone <your-repo-url>
-cd daily-intelligence
+cd <repo-dir>
 ```
 
-### 2. 配置 GitHub Secrets
-
-在 GitHub 仓库设置中添加以下 Secrets：
-
-#### 必需配置（邮件 - 推荐使用 Gmail）
-
-**推荐使用 Gmail**，因为：
-- ✅ 支持基本认证（使用应用密码）
-- ✅ 配置简单，稳定可靠
-- ✅ 适合自动化场景
-
-**Gmail 配置步骤：**
-
-1. **获取 Gmail 应用密码**：
-   - 登录 [Google 账户安全](https://myaccount.google.com/security)
-   - 启用两步验证（如果未启用）
-   - 进入"应用密码"或"App passwords"
-   - 生成新密码（选择"邮件"和"其他设备"）
-   - 复制生成的 16 位密码（**无连字符**，格式：`xxxxxxxxxxxxxxxx`）
-
-2. **配置 GitHub Secrets**：
-   - `SMTP_HOST`: `smtp.gmail.com`
-   - `SMTP_PORT`: `587`
-   - `SMTP_USER`: 你的 Gmail 邮箱地址（如：`your-email@gmail.com`）
-   - `SMTP_PASS`: Gmail 应用密码（16位，无连字符）
-   - `EMAIL_TO`: 收件邮箱地址（支持多个收件人）
-     - **单个邮箱**：`email@example.com`
-     - **多个邮箱（逗号分隔）**：`email1@example.com,email2@example.com`
-     - **多个邮箱（JSON 数组）**：`["email1@example.com","email2@example.com"]`
-
-**⚠️ 重要提示**：
-- 必须使用**应用密码**，不是账户密码
-- 应用密码是 16 位字符，**不包含连字符**
-- 应用密码只能查看一次，请妥善保存
-
-**其他邮箱服务**：
-- Outlook/Office365：已禁用基本认证，不推荐使用（需要使用 OAuth2，过于复杂）
-- 其他邮箱：请查询对应 SMTP 设置
-
-#### 可选配置（LLM 摘要 - 使用 GitHub 提供的模型）
-
-- `GITHUB_TOKEN`: GitHub Token（GitHub Actions 会自动提供 `github.token`，也可以手动配置）
-- `GITHUB_MODEL_NAME`: GitHub 提供的模型名称（可选，默认：`gpt-4o-mini`）
-
-**注意**：如果不配置 `GITHUB_TOKEN`，系统会使用原始内容（不生成摘要）
-
-### 3. 本地测试（可选）
+### 2. 安装依赖
 
 ```bash
-# 安装依赖
 pip install -r requirements.txt
+```
 
-# 设置环境变量
-export SMTP_HOST="smtp.gmail.com"
-export SMTP_PORT="587"
-export SMTP_USER="your-email@gmail.com"
-export SMTP_PASSWORD="your-app-password"
-export RECIPIENT_EMAIL="recipient@example.com"
-export OPENAI_API_KEY="sk-..."  # 可选
+### 3. 配置环境变量（或 GitHub Secrets）
 
-# 运行
+#### 必需（邮件，若使用 email 通道）
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| SMTP_HOST | SMTP 服务器 | `smtp.gmail.com` |
+| SMTP_PORT | 端口 | `587` |
+| SMTP_USER | 发件邮箱 | 你的 Gmail |
+| SMTP_PASS | 应用密码（Gmail 16 位，无连字符） | 从 Google 账户安全 → 应用密码 获取 |
+| EMAIL_TO | 收件人（多个用逗号分隔） | `a@x.com,b@x.com` |
+
+#### 报告模式与推送（通用可配置架构）
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| REPORT_MODE | 报告模式 | `daily_intel` |
+| PUSH_CHANNELS | 全球日报/股票 的推送通道，逗号分隔 | `email,feishu` |
+| COAL_PUSH_CHANNELS | 煤炭报告 的推送通道，逗号分隔 | `wecom` |
+| WECOM_WEBHOOK | 群机器人完整 Webhook URL | 空 |
+| WECOM_KEY | 群机器人 key（无 URL 时可单独配置） | 空 |
+| FEISHU_WEBHOOK_URL | 飞书机器人 Webhook | 空（不推飞书） |
+
+#### LLM（可选，用于摘要与报告总结）
+
+| 变量 | 说明 |
+|------|------|
+| GITHUB_TOKEN | GitHub Token（Actions 可自动提供） |
+| GITHUB_MODEL_NAME | 模型名，默认 `gpt-4o-mini` |
+
+### 4. 本地运行
+
+```bash
+# 默认：全球日报，邮件 + 飞书
+python main.py
+
+# 仅股票情报并推送到企业微信（需先设 WECOM_WEBHOOK）
+set REPORT_MODE=stock
+set PUSH_CHANNELS=wecom
 python main.py
 ```
+
+### 5. GitHub Actions 部署
+
+1. 在仓库 **Settings → Secrets and variables → Actions**（或 **Environments → main**）中配置上述变量。
+2. 工作流见 [.github/workflows/daily_intelligence.yml](.github/workflows/daily_intelligence.yml)。  
+   - 定时：每天 UTC 23:00、05:00（约北京时间 7:00、13:00）  
+   - 支持 **workflow_dispatch** 手动触发。
+
+**企业微信配置**（仅群机器人 Webhook）：
+
+- 配置 `WECOM_WEBHOOK`（完整 URL，推荐）或 `WECOM_KEY`（仅 key）。
+- 路径：群设置 → 群机器人 → 添加机器人 → 自定义 Webhook。
+
+⚠️ 切勿将 Secret/Key 写进代码或提交到仓库，请使用 GitHub Secrets 或本地 `.env`（并加入 `.gitignore`）。
 
 ## 项目结构
 
 ```
-daily-intelligence/
-├── .github/
-│   └── workflows/
-│       └── daily_intelligence.yml  # GitHub Actions 工作流
-├── main.py                          # 主程序入口
+├── .github/workflows/
+│   └── daily_intelligence.yml   # 定时/手动运行
+├── main.py                      # 入口：按 MODE 采集 → 报告 → 推送
 ├── config/
-│   └── settings.py                  # 配置管理
-├── sources/                         # 数据采集模块
-│   ├── twitter.py                   # 马斯克/特朗普
-│   ├── energy.py                   # 能源/电力
-│   ├── ai.py                       # AI 应用
-│   ├── space.py                    # 商业航天
-│   ├── fed.py                      # 美联储
-│   └── stocks.py                   # 美股市场
+│   └── settings.py             # 配置（含 REPORT_MODE、MODE_SOURCES、PUSH_CHANNELS）
+├── sources/                     # 数据采集
+│   ├── energy.py, ai.py, space.py, fed.py, stocks.py
+│   ├── web_sources.py, commodities_military.py, rss_extra.py, twitter.py
+│   └── ...
 ├── llm/
-│   └── github_llm.py               # LLM 摘要模块
+│   └── github_llm.py            # LLM 摘要与报告总结
 ├── formatter/
-│   └── report_builder.py           # 报告生成器
+│   ├── report_builder.py        # daily_intel HTML 报告
+│   ├── stock_report.py          # stock 模式 Markdown 报告
+│   └── coal_report.py          # coal 模式 Markdown 报告（预留）
 ├── mail/
-│   └── mailer.py                   # 邮件发送
-├── utils/                          # 工具模块
-│   ├── dedup.py                    # 去重
-│   ├── time.py                     # 时间处理
-│   └── logger.py                   # 日志
-└── requirements.txt                 # Python 依赖
+│   ├── mailer.py                # 邮件发送
+│   ├── feishu.py                # 飞书推送
+│   └── wecom.py                 # 企业微信推送
+├── utils/
+│   ├── logger.py, dedup.py, time.py, google_rss.py, ...
+└── requirements.txt
 ```
 
-## 执行时间
+## 模式与数据源映射（MODE_SOURCES）
 
-- **定时执行**：每天 UTC 23:00（北京时间早上 7:00）
-- **手动触发**：可在 GitHub Actions 页面手动触发
+在 `config/settings.py` 中可修改各模式启用的数据源：
 
-## 数据源
+- **daily_intel**：web_sources, google_rss, energy, commodities_military, ai, space, fed, stocks, rss_extra, twitter
+- **stock**：stocks, rss_extra, fed
+- **coal**：coal_port, coal_pit, coal_powerplant, coal_policy（预留，需自行实现爬虫并注册到 SOURCE_MODULES）
 
-- **Twitter**: Nitter RSS（多个实例自动切换）
-- **能源/电力**: EIA、Reuters Energy RSS
-- **AI 应用**: TechCrunch、Hacker News API
-- **商业航天**: SpaceNews、Reuters Aerospace RSS
-- **美联储**: Federal Reserve 官方、Reuters RSS
-- **美股市场**: Yahoo Finance API
+通过改配置即可支持「只跑股票相关」或未来接入煤炭数据源，无需改主流程。
+
+## 执行时间（GitHub Actions）
+
+- **定时**：每天 UTC 23:00、05:00（约北京 7:00、13:00）
+- **手动**：Actions 页选择 workflow → Run workflow
 
 ## 注意事项
 
-1. **零成本运行**：仅使用 GitHub Actions 免费额度（每月 2000 分钟）
-2. **数据源合规**：所有数据源均为公开 RSS/API，不爬取需要登录的内容
-3. **不存储历史**：仅处理当日信息，不存储历史数据
-4. **失败处理**：如果采集失败或处理后无数据，不会发送空邮件
-
-## 邮件格式
-
-邮件采用 HTML 格式，包含：
-- 8 个板块按固定顺序组织
-- 每条信息包含标题、摘要、来源和原文链接
-- 美观的样式和排版
+1. **零成本**：依赖 GitHub Actions 免费额度（每月约 2000 分钟）。
+2. **数据源**：均为公开 RSS/API，不爬取需登录内容。
+3. **空数据**：若采集或处理后无数据，不会发送邮件、不报错退出。
+4. **煤炭模式**：当前 `coal` 模式无真实爬虫，会生成占位报告；后续在 `sources` 下实现 `coal_*` 并在 main 中注册即可接入。
 
 ## 扩展方向
 
-未来可扩展功能：
-- ⭐ 利好/利空/中性标签
-- ⭐ 重要性星级评分
-- ⭐ 多源合并同一事件
-- ⭐ Telegram / 飞书 / 企业微信推送
-- ⭐ 周报/月报自动生成
+- 实现煤炭数据源（港口价、坑口价、电厂库存、政策）与 `coal_report` 模板
+- 多 workflow：如单独 `coal_report.yml`，cron 不同、`REPORT_MODE=coal`、`PUSH_CHANNELS=wecom`
+- 报告过长时企业微信分条发送
 
 ## 许可证
 
@@ -181,5 +196,4 @@ MIT License
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request！
-
+欢迎提交 Issue 与 Pull Request。

@@ -40,6 +40,67 @@ else:
 # 在飞书群组 → 设置 → 群机器人 → 添加自定义机器人 → 复制 Webhook 地址
 FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", "").strip()
 
+# 报告模式与推送通道（通用可配置架构）
+# REPORT_MODE: daily_intel（全球日报）/ stock（股票情报）/ coal（煤炭情报）/ both（日报+煤炭同时运行）
+REPORT_MODE = os.getenv("REPORT_MODE", "daily_intel").strip().lower() or "daily_intel"
+
+# 推送通道默认值：全球日报/股票 → 邮件+飞书；煤炭 → 企业微信（可被环境变量覆盖）
+PUSH_CHANNELS_RAW = os.getenv("PUSH_CHANNELS", "email,feishu").strip()  # daily_intel / stock 使用
+PUSH_CHANNELS = [ch.strip().lower() for ch in PUSH_CHANNELS_RAW.split(",") if ch.strip()] or ["email", "feishu"]
+COAL_PUSH_CHANNELS_RAW = os.getenv("COAL_PUSH_CHANNELS", "wecom").strip()  # coal 使用
+COAL_PUSH_CHANNELS = [ch.strip().lower() for ch in COAL_PUSH_CHANNELS_RAW.split(",") if ch.strip()] or ["wecom"]
+
+# 企业微信推送：仅群机器人 Webhook（推荐在 GitHub Secrets 配置 WECOM_WEBHOOK）
+# 兼容两种写法：
+# 1) WECOM_WEBHOOK: 完整 URL（推荐）
+# 2) WECOM_KEY: 仅 key，代码会自动拼接为完整 URL
+WECOM_WEBHOOK_RAW = os.getenv("WECOM_WEBHOOK", "").strip()
+WECOM_KEY = os.getenv("WECOM_KEY", "").strip()
+WECOM_WEBHOOK = (
+    WECOM_WEBHOOK_RAW
+    if WECOM_WEBHOOK_RAW and WECOM_WEBHOOK_RAW.startswith("http")
+    else (f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={WECOM_KEY}" if WECOM_KEY else "")
+)
+
+# 模式与数据源映射：每个模式启用哪些 source key（对应 SOURCE_MODULES 的 key）
+MODE_SOURCES: Dict[str, List[str]] = {
+    "daily_intel": [
+        "web_sources", "google_rss", "energy", "commodities_military", "ai", "space",
+        "fed", "stocks", "rss_extra", "twitter",
+    ],
+    "stock": ["stocks", "rss_extra", "fed"],
+    "coal": ["coal_port", "coal_pit", "coal_powerplant", "coal_policy"],
+}
+
+# 煤炭数据源配置（REPORT_MODE=coal 时使用）
+# 默认使用新浪财经 RSS（国内可访问），Google News 作为补充（海外/GitHub Actions 可用）
+# 各源均为 RSS URL，支持环境变量覆盖；多条用逗号分隔
+_COAL_PORT_DEFAULT = (
+    "https://rss.sina.com.cn/finance/future.xml,"
+    "https://news.google.com/rss/search?q=秦皇岛+动力煤+价格&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+)
+_COAL_PIT_DEFAULT = (
+    "https://rss.sina.com.cn/finance/future.xml,"
+    "https://news.google.com/rss/search?q=榆林+鄂尔多斯+产地+坑口+煤价&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+)
+_COAL_POWERPLANT_DEFAULT = (
+    "https://rss.sina.com.cn/finance/future.xml,"
+    "https://news.google.com/rss/search?q=电厂+库存+煤炭&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+)
+_COAL_POLICY_DEFAULT = (
+    "https://rss.sina.com.cn/roll/finance/hot_roll.xml,"
+    "https://news.google.com/rss/search?q=中国+煤炭+政策&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+)
+
+def _coal_sources(env_key: str, default: str) -> List[str]:
+    raw = os.getenv(env_key, "").strip() or default
+    return [u.strip() for u in raw.split(",") if u.strip()]
+
+COAL_PORT_SOURCES: List[str] = _coal_sources("COAL_PORT_URL", _COAL_PORT_DEFAULT)
+COAL_PIT_SOURCES: List[str] = _coal_sources("COAL_PIT_URL", _COAL_PIT_DEFAULT)
+COAL_POWERPLANT_SOURCES: List[str] = _coal_sources("COAL_POWERPLANT_URL", _COAL_POWERPLANT_DEFAULT)
+COAL_POLICY_SOURCES: List[str] = _coal_sources("COAL_POLICY_URL", _COAL_POLICY_DEFAULT)
+
 # LLM API 配置 - 使用 GitHub 提供的模型
 # GitHub Actions 会自动提供 GITHUB_TOKEN 环境变量（通过 github.token）
 # 也可以手动在 Secrets 中配置 GITHUB_TOKEN

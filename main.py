@@ -1,19 +1,42 @@
 """
 Daily Global Intelligence Engine
 主程序入口
+支持 REPORT_MODE：daily_intel / stock / coal（配置驱动采集、报告与推送）
 """
 import sys
-from typing import List, Dict
+import html as html_module
+from typing import List, Dict, Optional, Any
 
 from utils.logger import logger
 from utils.dedup import deduplicate_items
 from utils import google_rss
 from sources import energy, ai, space, fed, stocks
 from sources import web_sources, commodities_military, rss_extra, twitter
+from sources import coal_port, coal_pit, coal_powerplant, coal_policy
 from llm.github_llm import summarize_batch_unified, generate_report_summary_with_reasoning, generate_stock_analysis
 from formatter.report_builder import build_html_report
+from formatter.stock_report import build_stock_report
+from formatter.coal_report import build_coal_report
 from mail.mailer import send_report
 from mail.feishu import send_report_to_feishu
+from mail.wecom import send_wecom
+
+# 同步数据源模块映射（key 与 config.settings.MODE_SOURCES 一致）
+# web_sources / google_rss 为线程采集，在 collect_all_data 内单独处理
+SOURCE_MODULES: Dict[str, Any] = {
+    "energy": energy,
+    "commodities_military": commodities_military,
+    "ai": ai,
+    "space": space,
+    "fed": fed,
+    "stocks": stocks,
+    "rss_extra": rss_extra,
+    "twitter": twitter,
+    "coal_port": coal_port,
+    "coal_pit": coal_pit,
+    "coal_powerplant": coal_powerplant,
+    "coal_policy": coal_policy,
+}
 
 
 def _collect_data_sources() -> List[Dict]:
@@ -51,106 +74,54 @@ def _collect_data_sources() -> List[Dict]:
     return sources
 
 
-def collect_all_data() -> List[Dict]:
+def collect_all_data(mode: Optional[str] = None) -> List[Dict]:
     """
-    采集所有数据源的数据
-    
-    Returns:
-        所有数据项列表
+    按指定 mode 只采集 MODE_SOURCES 中启用的数据源。
+    mode 为空时使用 settings.REPORT_MODE。
     """
+    from config import settings
     all_items: List[Dict] = []
-    
+    mode = mode or getattr(settings, "REPORT_MODE", "daily_intel") or "daily_intel"
+    mode_sources = getattr(settings, "MODE_SOURCES", None) or {}
+    enabled = mode_sources.get(mode, mode_sources.get("daily_intel", []))
+
     logger.info("=" * 60)
-    logger.info("开始数据采集")
+    logger.info("开始数据采集 [REPORT_MODE=%s]", mode)
     logger.info("=" * 60)
-    
-    # 1. 启动网页来源与 Google News RSS 采集（独立线程），主流程不等待
-    logger.info("\n[1/10] 采集网页来源（X/马斯克/特朗普，独立线程已启动）...")
+
     web_thread, web_result_list = None, []
-    try:
-        web_thread, web_result_list = web_sources.start_collection_thread()
-    except Exception as e:
-        logger.error(f"✗ 网页来源线程启动失败: {e}")
-    logger.info("[2/10] 采集 Google News RSS（世界新闻，独立线程已启动）...")
     google_rss_thread, google_rss_result_list = None, []
-    try:
-        google_rss_thread, google_rss_result_list = google_rss.start_google_rss_collection_thread()
-    except Exception as e:
-        logger.error(f"✗ Google RSS 线程启动失败: {e}")
 
-    # 3. 采集能源/电力数据
-    logger.info("\n[3/10] 采集能源/电力数据...")
-    try:
-        energy_items = energy.collect_all()
-        all_items.extend(energy_items)
-        logger.info(f"✓ 采集到 {len(energy_items)} 条能源/电力数据")
-    except Exception as e:
-        logger.error(f"✗ 能源/电力数据采集失败: {e}")
+    if "web_sources" in enabled:
+        logger.info("\n采集网页来源（独立线程）...")
+        try:
+            web_thread, web_result_list = web_sources.start_collection_thread()
+        except Exception as e:
+            logger.error("✗ 网页来源线程启动失败: %s", e)
+    if "google_rss" in enabled:
+        logger.info("\n采集 Google News RSS（独立线程）...")
+        try:
+            google_rss_thread, google_rss_result_list = google_rss.start_google_rss_collection_thread()
+        except Exception as e:
+            logger.error("✗ Google RSS 线程启动失败: %s", e)
 
-    # 4. 采集黄金、石油、军事
-    logger.info("\n[4/10] 采集黄金/石油/军事...")
-    try:
-        cm_items = commodities_military.collect_all()
-        all_items.extend(cm_items)
-        logger.info(f"✓ 采集到 {len(cm_items)} 条黄金/石油/军事数据")
-    except Exception as e:
-        logger.error(f"✗ 黄金/石油/军事采集失败: {e}")
-    
-    # 5. 采集 AI 应用数据
-    logger.info("\n[5/10] 采集 AI 应用数据...")
-    try:
-        ai_items = ai.collect_all()
-        all_items.extend(ai_items)
-        logger.info(f"✓ 采集到 {len(ai_items)} 条 AI 应用数据")
-    except Exception as e:
-        logger.error(f"✗ AI 应用数据采集失败: {e}")
-    
-    # 6. 采集商业航天数据
-    logger.info("\n[6/10] 采集商业航天数据...")
-    try:
-        space_items = space.collect_all()
-        all_items.extend(space_items)
-        logger.info(f"✓ 采集到 {len(space_items)} 条商业航天数据")
-    except Exception as e:
-        logger.error(f"✗ 商业航天数据采集失败: {e}")
-    
-    # 7. 采集美联储数据
-    logger.info("\n[7/10] 采集美联储数据...")
-    try:
-        fed_items = fed.collect_all()
-        all_items.extend(fed_items)
-        logger.info(f"✓ 采集到 {len(fed_items)} 条美联储数据")
-    except Exception as e:
-        logger.error(f"✗ 美联储数据采集失败: {e}")
-    
-    # 8. 采集美股市场数据（Stooq 指数 + 大涨个股）
-    logger.info("\n[8/10] 采集美股市场数据...")
-    try:
-        stocks_items = stocks.collect_all()
-        all_items.extend(stocks_items)
-        logger.info(f"✓ 采集到 {len(stocks_items)} 条美股市场数据")
-    except Exception as e:
-        logger.error(f"✗ 美股市场数据采集失败: {e}")
+    step = 0
+    for key in enabled:
+        if key in ("web_sources", "google_rss"):
+            continue
+        mod = SOURCE_MODULES.get(key)
+        if mod is None:
+            logger.warning("未知或未实现数据源: %s，已跳过", key)
+            continue
+        step += 1
+        logger.info("\n[%s] 采集 %s...", step, key)
+        try:
+            items = mod.collect_all()
+            all_items.extend(items)
+            logger.info("✓ 采集到 %d 条", len(items))
+        except Exception as e:
+            logger.error("✗ %s 采集失败: %s", key, e)
 
-    # 9. 采集美股快讯 + SEC 监管（CNBC、MarketWatch、Seeking Alpha、SEC）
-    logger.info("\n[9/10] 采集美股快讯与 SEC 监管...")
-    try:
-        rss_extra_items = rss_extra.collect_all()
-        all_items.extend(rss_extra_items)
-        logger.info(f"✓ 采集到 {len(rss_extra_items)} 条美股快讯/SEC 监管")
-    except Exception as e:
-        logger.error(f"✗ 美股快讯/SEC 采集失败: {e}")
-
-    # 10. 马斯克/特朗普 Google News RSS（与网页抓取并存）
-    logger.info("\n[10/10] 采集马斯克/特朗普 RSS（Google News）...")
-    twitter_rss_items: List[Dict] = []
-    try:
-        twitter_rss_items = twitter.collect_all()
-        logger.info(f"✓ 采集到 {len(twitter_rss_items)} 条马斯克/特朗普 RSS")
-    except Exception as e:
-        logger.error(f"✗ 马斯克/特朗普 RSS 采集失败: {e}")
-
-    # 等待网页来源与 Google RSS 线程结束并合并结果
     if web_thread is not None and web_thread.is_alive():
         logger.info("\n等待网页来源采集线程结束...")
         web_thread.join()
@@ -158,15 +129,14 @@ def collect_all_data() -> List[Dict]:
         logger.info("等待 Google News RSS 采集线程结束...")
         google_rss_thread.join()
     if web_result_list:
-        logger.info(f"✓ 网页来源采集到 {len(web_result_list)} 条（已合并）")
+        logger.info("✓ 网页来源采集到 %d 条（已合并）", len(web_result_list))
     if google_rss_result_list:
-        logger.info(f"✓ Google News RSS 采集到 {len(google_rss_result_list)} 条（已合并）")
-    all_items = web_result_list + google_rss_result_list + twitter_rss_items + all_items
-    
+        logger.info("✓ Google News RSS 采集到 %d 条（已合并）", len(google_rss_result_list))
+    all_items = web_result_list + google_rss_result_list + all_items
+
     logger.info("\n" + "=" * 60)
-    logger.info(f"数据采集完成，共采集 {len(all_items)} 条数据")
+    logger.info("数据采集完成，共采集 %d 条数据", len(all_items))
     logger.info("=" * 60)
-    
     return all_items
 
 def process_data(items: List[Dict]) -> List[Dict]:
@@ -216,100 +186,142 @@ def process_data(items: List[Dict]) -> List[Dict]:
                 item["summary"] = original_content[:200] + ("..." if len(original_content) > 200 else "")
         return valid_items
 
-def main():
-    """
-    主函数
-    """
-    try:
-        logger.info("=" * 60)
-        logger.info("Daily Global Intelligence Engine 启动")
-        logger.info("=" * 60)
-        
-        # 1. 采集数据
-        all_items = collect_all_data()
-        
-        if not all_items:
-            logger.warning("未采集到任何数据，退出程序")
-            logger.warning("注意：不会发送空邮件")
-            sys.exit(0)
-        
-        # 2. 处理数据
-        processed_items = process_data(all_items)
-        
-        if not processed_items:
-            logger.warning("处理后无有效数据，退出程序")
-            logger.warning("注意：不会发送空邮件")
-            sys.exit(0)
-        
-        # 3. 生成报告总结（DeepSeek-R1 带思考，单次约 4000 token）
-        logger.info("\n" + "=" * 60)
-        logger.info("生成报告与总结")
-        logger.info("=" * 60)
-        report_summary = None
-        report_reasoning = ""
-        try:
-            from config import settings
-            if settings.GITHUB_TOKEN:
-                result = generate_report_summary_with_reasoning(processed_items)
-                report_summary = result.get("summary") or None
-                report_reasoning = result.get("reasoning") or ""
-                if report_summary:
-                    logger.info("✓ 报告总结生成完成")
-        except Exception as e:
-            logger.warning(f"报告总结生成失败（不影响报告）: {e}")
+def _markdown_to_html_body(markdown_content: str) -> str:
+    """将 Markdown 报告包装为最小 HTML 邮件正文（<pre> 保留换行）。"""
+    escaped = html_module.escape(markdown_content)
+    from utils.time import get_today_date
+    today = get_today_date()
+    return (
+        f"<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>日报 - {today}</title></head>"
+        f"<body style=\"font-family: sans-serif; padding: 16px;\">"
+        f"<pre style=\"white-space: pre-wrap; word-break: break-all;\">{escaped}</pre>"
+        f"</body></html>"
+    )
 
-        # 股票简析（涨跌原因、可关注、建议规避）
-        stock_analysis = None
-        try:
-            if settings.GITHUB_TOKEN:
-                stock_analysis = generate_stock_analysis(processed_items)
-                if stock_analysis:
-                    logger.info("✓ 股票简析生成完成")
-        except Exception as e:
-            logger.warning(f"股票简析生成失败（不影响报告）: {e}")
 
-        # 收集数据来源列表（用于报告内默认折叠展示）
+def _run_one_report(mode: str) -> bool:
+    """跑单份报告：采集 -> 处理 -> 生成 -> 推送。成功返回 True。"""
+    from config import settings
+
+    all_items = collect_all_data(mode=mode)
+    if not all_items:
+        logger.warning("未采集到任何数据 [%s]，跳过", mode)
+        return True
+    processed = process_data(all_items)
+    if not processed:
+        logger.warning("处理后无有效数据 [%s]，跳过", mode)
+        return True
+
+    report_summary: Optional[str] = None
+    report_reasoning = ""
+    stock_analysis: Optional[str] = None
+    if settings.GITHUB_TOKEN and mode != "coal":
+        try:
+            result = generate_report_summary_with_reasoning(processed)
+            report_summary = result.get("summary") or None
+            report_reasoning = result.get("reasoning") or ""
+        except Exception as e:
+            logger.warning("报告总结生成失败: %s", e)
+        try:
+            if mode in ("daily_intel", "stock"):
+                stock_analysis = generate_stock_analysis(processed)
+        except Exception as e:
+            logger.warning("股票简析生成失败: %s", e)
+
+    report_content: str
+    report_is_markdown = False
+    if mode == "daily_intel":
         data_sources = _collect_data_sources()
-
-        html_report = build_html_report(
-            processed_items,
+        report_content = build_html_report(
+            processed,
             report_summary=report_summary,
             reasoning=report_reasoning,
             data_sources=data_sources,
             stock_analysis=stock_analysis,
         )
-        logger.info("✓ HTML 报告生成完成")
-        
-        # 4. 发送邮件
-        logger.info("\n" + "=" * 60)
-        logger.info("发送邮件")
-        logger.info("=" * 60)
-        
-        success = send_report(html_report)
+    elif mode == "stock":
+        report_content = build_stock_report(processed, stock_analysis=stock_analysis)
+        report_is_markdown = True
+    elif mode == "coal":
+        report_content = build_coal_report(processed)
+        report_is_markdown = True
+    else:
+        data_sources = _collect_data_sources()
+        report_content = build_html_report(
+            processed,
+            report_summary=report_summary,
+            reasoning=report_reasoning,
+            data_sources=data_sources,
+            stock_analysis=stock_analysis,
+        )
 
-        # 若配置了飞书 Webhook，同步推送日报摘要到飞书群（失败不影响主流程）
-        try:
-            if getattr(settings, "FEISHU_WEBHOOK_URL", ""):
-                send_report_to_feishu(html_report, report_summary=report_summary)
-        except Exception as e:
-            logger.warning("飞书推送失败（不影响邮件）: %s", e)
-        
-        if success:
+    push_channels: List[str]
+    if mode == "coal":
+        push_channels = getattr(settings, "COAL_PUSH_CHANNELS", None) or ["wecom"]
+    else:
+        push_channels = getattr(settings, "PUSH_CHANNELS", None) or ["email", "feishu"]
+
+    email_ok = False
+    for ch in push_channels:
+        if ch == "email":
+            to_send = report_content if not report_is_markdown else _markdown_to_html_body(report_content)
+            email_ok = send_report(to_send)
+        elif ch == "feishu":
+            try:
+                feishu_url = getattr(settings, "FEISHU_WEBHOOK_URL", "") or ""
+                if feishu_url:
+                    html_f = report_content if not report_is_markdown else _markdown_to_html_body(report_content)
+                    body = (report_content if report_is_markdown else report_summary) or ""
+                    send_report_to_feishu(html_f, report_summary=body or None)
+            except Exception as e:
+                logger.warning("飞书推送失败: %s", e)
+        elif ch == "wecom":
+            try:
+                send_wecom(report_content)
+            except Exception as e:
+                logger.warning("企业微信推送失败: %s", e)
+
+    if "email" in push_channels and not email_ok:
+        return False
+    return True
+
+
+def main():
+    """
+    主函数：按 REPORT_MODE 采集、生成报告、推送。
+    REPORT_MODE=both 时依次运行全球日报 + 煤炭日报（日报推邮件/飞书，煤炭仅推企业微信）。
+    """
+    from config import settings
+    try:
+        cfg_mode = getattr(settings, "REPORT_MODE", "daily_intel") or "daily_intel"
+        logger.info("=" * 60)
+        logger.info("Daily Global Intelligence Engine 启动 [REPORT_MODE=%s]", cfg_mode)
+        logger.info("=" * 60)
+
+        modes_to_run: List[str] = ["daily_intel", "coal"] if cfg_mode == "both" else [cfg_mode]
+        email_failed = False
+
+        for m in modes_to_run:
             logger.info("\n" + "=" * 60)
-            logger.info("✓ 任务完成！邮件已成功发送")
+            logger.info("运行报告 [%s]", m)
             logger.info("=" * 60)
-            sys.exit(0)
-        else:
-            logger.error("\n" + "=" * 60)
+            if not _run_one_report(m):
+                if "email" in (getattr(settings, "PUSH_CHANNELS", None) or ["email", "feishu"]):
+                    email_failed = True
+
+        if email_failed:
             logger.error("✗ 邮件发送失败")
-            logger.error("=" * 60)
             sys.exit(1)
-            
+        logger.info("\n" + "=" * 60)
+        logger.info("✓ 任务完成")
+        logger.info("=" * 60)
+        sys.exit(0)
+
     except KeyboardInterrupt:
         logger.warning("\n用户中断程序")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"\n程序执行失败: {e}", exc_info=True)
+        logger.error("\n程序执行失败: %s", e, exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -49,6 +49,14 @@ jobs:
           # 飞书推送（可选）：在仓库或 environment 的 Secrets 中配置 FEISHU_WEBHOOK_URL 后日报会推送到飞书群
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           
+          # 报告模式与推送通道（通用可配置架构）
+          # REPORT_MODE: daily_intel（默认）/ stock（股票情报）/ coal（煤炭情报，预留）
+          REPORT_MODE: ${{ secrets.REPORT_MODE || 'daily_intel' }}
+          # PUSH_CHANNELS: 逗号分隔，如 email,feishu,wecom
+          PUSH_CHANNELS: ${{ secrets.PUSH_CHANNELS || 'email,feishu' }}
+          # 企业微信群机器人 Webhook（可选）
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          
           # LLM API 配置（使用 GitHub 提供的模型）
           # GitHub Actions 会自动提供 github.token（通过 permissions.models: read）
           # 也可以手动在 Secrets 中配置 GITHUB_TOKEN
