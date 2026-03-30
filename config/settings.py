@@ -41,8 +41,8 @@ else:
 FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", "").strip()
 
 # 报告模式与推送通道（通用可配置架构）
-# REPORT_MODE: daily_intel（全球日报）/ stock（股票情报）/ coal（煤炭情报）/ both（日报+煤炭同时运行）
-REPORT_MODE = os.getenv("REPORT_MODE", "daily_intel").strip().lower() or "daily_intel"
+# REPORT_MODE: both（默认，日报+煤炭）/ daily_intel（全球日报）/ stock（股票情报）/ coal（煤炭情报）
+REPORT_MODE = os.getenv("REPORT_MODE", "both").strip().lower() or "both"
 
 # 推送通道默认值：全球日报/股票 → 邮件+飞书；煤炭 → 企业微信（可被环境变量覆盖）
 PUSH_CHANNELS_RAW = os.getenv("PUSH_CHANNELS", "email,feishu").strip()  # daily_intel / stock 使用

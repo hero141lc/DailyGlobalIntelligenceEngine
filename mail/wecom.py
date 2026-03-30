@@ -7,15 +7,56 @@ import requests
 
 from utils.logger import logger
 
-# 群机器人 Markdown 建议不超过 4096 字节
-WECOM_MARKDOWN_MAX_LEN = 4096
+# 群机器人 Markdown 最大 4096 字节（UTF-8）
+WECOM_MARKDOWN_MAX_BYTES = 4096
 
 
-def _truncate_content(text: str, max_len: int = WECOM_MARKDOWN_MAX_LEN) -> str:
-    text = (text or "").strip()
-    if len(text) > max_len:
-        text = text[: max_len - 3].rstrip() + "…"
-    return text
+def _split_markdown_content(text: str, max_bytes: int = WECOM_MARKDOWN_MAX_BYTES) -> list[str]:
+    """
+    按 UTF-8 字节长度切分 Markdown 内容，确保每段 <= max_bytes。
+    优先按换行分段，避免破坏可读性；若单行超长则按字符硬切。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return []
+
+    chunks: list[str] = []
+    current = ""
+
+    def _utf8_len(s: str) -> int:
+        return len(s.encode("utf-8"))
+
+    lines = raw.splitlines(keepends=True)
+    for line in lines:
+        # 当前行本身已超限，先落盘 current，再把该行硬切
+        if _utf8_len(line) > max_bytes:
+            if current:
+                chunks.append(current.rstrip())
+                current = ""
+            buf = ""
+            for ch in line:
+                if _utf8_len(buf + ch) > max_bytes:
+                    chunks.append(buf.rstrip())
+                    buf = ch
+                else:
+                    buf += ch
+            if buf:
+                chunks.append(buf.rstrip())
+            continue
+
+        if not current:
+            current = line
+            continue
+
+        if _utf8_len(current + line) <= max_bytes:
+            current += line
+        else:
+            chunks.append(current.rstrip())
+            current = line
+
+    if current:
+        chunks.append(current.rstrip())
+    return [c for c in chunks if c]
 
 
 def send_wecom(content: str, webhook: str = "") -> dict:
@@ -36,28 +77,31 @@ def send_wecom_message(webhook: str, content: str) -> dict:
     if not webhook or not str(webhook).strip().startswith("http"):
         logger.warning("WECOM_WEBHOOK 未配置或无效，跳过企业微信推送")
         return {"errcode": -1, "errmsg": "webhook not configured"}
-    text = _truncate_content(content)
-    if not text:
+    chunks = _split_markdown_content(content)
+    if not chunks:
         logger.warning("企业微信推送内容为空，跳过")
         return {"errcode": -1, "errmsg": "content empty"}
-    payload = {"msgtype": "markdown", "markdown": {"content": text}}
-    try:
-        resp = requests.post(
-            webhook,
-            json=payload,
-            headers={"Content-Type": "application/json; charset=utf-8"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("errcode") == 0:
-            logger.info("企业微信推送成功")
-        else:
-            logger.warning("企业微信返回非成功: %s", data)
-        return data
-    except requests.RequestException as e:
-        logger.warning("企业微信推送请求异常: %s", e)
-        return {"errcode": -1, "errmsg": str(e)}
-    except Exception as e:
-        logger.warning("企业微信推送失败: %s", e)
-        return {"errcode": -1, "errmsg": str(e)}
+
+    logger.info("企业微信消息分片发送：共 %d 条", len(chunks))
+    for idx, text in enumerate(chunks, start=1):
+        payload = {"msgtype": "markdown", "markdown": {"content": text}}
+        try:
+            resp = requests.post(
+                webhook,
+                json=payload,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("errcode") != 0:
+                logger.warning("企业微信第 %d 条发送失败: %s", idx, data)
+                return data
+            logger.info("企业微信第 %d/%d 条发送成功", idx, len(chunks))
+        except requests.RequestException as e:
+            logger.warning("企业微信第 %d 条请求异常: %s", idx, e)
+            return {"errcode": -1, "errmsg": str(e)}
+        except Exception as e:
+            logger.warning("企业微信第 %d 条发送失败: %s", idx, e)
+            return {"errcode": -1, "errmsg": str(e)}
+    return {"errcode": 0, "errmsg": "ok"}

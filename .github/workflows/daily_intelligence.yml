@@ -50,8 +50,8 @@ jobs:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           
           # 报告模式与推送通道（通用可配置架构）
-          # REPORT_MODE: daily_intel（默认）/ stock（股票情报）/ coal（煤炭情报，预留）
-          REPORT_MODE: ${{ secrets.REPORT_MODE || 'daily_intel' }}
+          # REPORT_MODE: both（默认）/ daily_intel / stock（股票情报）/ coal（煤炭情报）
+          REPORT_MODE: ${{ secrets.REPORT_MODE || 'both' }}
           # PUSH_CHANNELS: 逗号分隔，如 email,feishu,wecom
           PUSH_CHANNELS: ${{ secrets.PUSH_CHANNELS || 'email,feishu' }}
           # 企业微信群机器人 Webhook（可选）
