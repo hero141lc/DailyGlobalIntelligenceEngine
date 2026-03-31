@@ -5,6 +5,7 @@ Daily Global Intelligence Engine
 """
 import sys
 import html as html_module
+import re
 from typing import List, Dict, Optional, Any
 
 from utils.logger import logger
@@ -199,6 +200,17 @@ def _markdown_to_html_body(markdown_content: str) -> str:
     )
 
 
+def _html_to_plain_text(html_content: str, max_len: int = 4000) -> str:
+    """将 HTML 报告转为纯文本，避免在 IM 渠道里出现标签噪音。"""
+    if not html_content:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", html_content)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > max_len:
+        return text[: max_len - 1].rstrip() + "…"
+    return text
+
+
 def _run_one_report(mode: str) -> bool:
     """跑单份报告：采集 -> 处理 -> 生成 -> 推送。成功返回 True。"""
     from config import settings
@@ -277,7 +289,11 @@ def _run_one_report(mode: str) -> bool:
                 logger.warning("飞书推送失败: %s", e)
         elif ch == "wecom":
             try:
-                send_wecom(report_content)
+                # 企业微信对齐飞书：发送 Markdown/纯文本正文，不直接发送 HTML 原文
+                wecom_body = (report_content if report_is_markdown else report_summary) or ""
+                if not wecom_body and not report_is_markdown:
+                    wecom_body = _html_to_plain_text(report_content, max_len=4000)
+                send_wecom(wecom_body or "今日报告已生成。")
             except Exception as e:
                 logger.warning("企业微信推送失败: %s", e)
 
