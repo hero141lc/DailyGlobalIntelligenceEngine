@@ -8,6 +8,7 @@ import feedparser
 import re
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 
 from config import settings
 from utils.logger import logger
@@ -18,6 +19,7 @@ from utils.time import get_today_date, parse_date, format_date_for_display
 _PIT_KEYWORDS = ("煤", "煤炭", "产地", "坑口", "榆林", "鄂尔多斯", "山西", "陕西", "蒙西", "焦煤", "焦炭")
 _PIT_MARKERS = ("榆林", "鄂尔多斯", "神木", "府谷", "产地", "坑口")
 _PRICE_RE = r"\d{2,4}(?:\.\d+)?\s*元\s*/?\s*吨"
+_DETAIL_HINTS = ("煤炭市场早报", "价格快讯", "价格指数", "动力煤", "坑口", "港口", "煤价", "煤炭")
 
 def _parse_entry(entry: feedparser.FeedParserDict, source_name: str) -> Optional[Dict]:
     """将 RSS 条目解析为标准数据项。"""
@@ -110,6 +112,28 @@ def _collect_pit_from_web() -> List[Dict]:
                 )
                 if len(items) >= 20:
                     break
+            # 下钻详情页，提高坑口价格提取命中率
+            for detail_url in _collect_detail_links(soup, url):
+                detail_lines = _fetch_text_lines(detail_url, headers)
+                for ln in detail_lines:
+                    if not any(m in ln for m in _PIT_MARKERS):
+                        continue
+                    if "煤" not in ln or not re.search(_PRICE_RE, ln):
+                        continue
+                    items.append(
+                        {
+                            "category": "产地坑口",
+                            "title": ln[:200],
+                            "content": ln[:500],
+                            "source": _web_source_name(url),
+                            "url": detail_url,
+                            "published_at": get_today_date(),
+                        }
+                    )
+                    if len(items) >= 40:
+                        break
+                if len(items) >= 40:
+                    break
         except Exception as e:
             logger.debug("产地坑口网页采集失败 %s: %s", url, e)
     return items
@@ -123,3 +147,42 @@ def _web_source_name(url: str) -> str:
     if "eastmoney.com" in url:
         return "东方财富"
     return "网页源"
+
+
+def _collect_detail_links(soup: BeautifulSoup, base_url: str) -> List[str]:
+    host = urlparse(base_url).netloc
+    links: List[str] = []
+    seen = set()
+    for a in soup.find_all("a"):
+        text = (a.get_text(" ", strip=True) or "").strip()
+        href = (a.get("href") or "").strip()
+        if not href:
+            continue
+        if not any(h in text for h in _DETAIL_HINTS):
+            continue
+        full = urljoin(base_url, href)
+        p = urlparse(full)
+        if p.scheme not in ("http", "https"):
+            continue
+        if host and host not in p.netloc:
+            continue
+        if full in seen:
+            continue
+        seen.add(full)
+        links.append(full)
+        if len(links) >= 8:
+            break
+    return links
+
+
+def _fetch_text_lines(url: str, headers: Dict[str, str]) -> List[str]:
+    try:
+        resp = requests.get(url, timeout=12, headers=headers)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text or "", "lxml")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        text = soup.get_text("\n", strip=True)
+        return [ln.strip() for ln in text.splitlines() if ln and ln.strip()]
+    except Exception:
+        return []
