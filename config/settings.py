@@ -106,7 +106,8 @@ COAL_POLICY_SOURCES: List[str] = _coal_sources("COAL_POLICY_URL", _COAL_POLICY_D
 _COAL_WEB_DEFAULT = (
     "https://cif.mofcom.gov.cn/cif/html/,"
     "https://ccera.com.cn/index.html,"
-    "https://finance.eastmoney.com/"
+    "https://finance.eastmoney.com/,"
+    "https://finance.10jqka.com.cn/"
 )
 COAL_WEB_SOURCES: List[str] = _coal_sources("COAL_WEB_URLS", _COAL_WEB_DEFAULT)
 

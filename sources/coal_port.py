@@ -9,6 +9,8 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+import random
+import time
 
 from config import settings
 from utils.logger import logger
@@ -22,6 +24,11 @@ _COAL_PORT_KEYWORDS = ("煤", "煤炭", "动力煤", "秦皇岛", "环渤海", "
 _PORT_MARKERS = ("秦皇岛", "曹妃甸", "京唐", "黄骅", "环渤海")
 _PRICE_RE = r"\d{2,4}(?:\.\d+)?\s*元\s*/?\s*吨"
 _DETAIL_HINTS = ("煤炭市场早报", "价格快讯", "价格指数", "动力煤", "坑口", "港口", "煤价", "煤炭")
+_UA_POOL = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+)
 
 def _parse_entry(entry: feedparser.FeedParserDict, source_name: str) -> Optional[Dict]:
     """将 RSS 条目解析为标准数据项。"""
@@ -78,18 +85,15 @@ def collect_all() -> List[Dict]:
 def _collect_port_from_web() -> List[Dict]:
     items: List[Dict] = []
     urls = getattr(settings, "COAL_WEB_SOURCES", None) or []
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-    }
+    session = requests.Session()
     for page_url in urls:
         url = str(page_url or "").strip()
         if not url.startswith("http"):
             continue
         try:
-            resp = requests.get(url, timeout=12, headers=headers)
+            headers = _build_headers(url)
+            _human_delay()
+            resp = _request_with_retry(session, url, headers)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text or "", "lxml")
             for tag in soup(["script", "style", "noscript"]):
@@ -117,7 +121,7 @@ def _collect_port_from_web() -> List[Dict]:
                     break
             # 继续下钻抓取详情页，提升价格命中率
             for detail_url in _collect_detail_links(soup, url):
-                detail_lines = _fetch_text_lines(detail_url, headers)
+                detail_lines = _fetch_text_lines(session, detail_url)
                 for ln in detail_lines:
                     if not any(m in ln for m in _PORT_MARKERS):
                         continue
@@ -149,6 +153,8 @@ def _web_source_name(url: str) -> str:
         return "中国煤炭经济网"
     if "eastmoney.com" in url:
         return "东方财富"
+    if "10jqka.com.cn" in url:
+        return "同花顺财经"
     return "网页源"
 
 
@@ -178,9 +184,11 @@ def _collect_detail_links(soup: BeautifulSoup, base_url: str) -> List[str]:
     return links
 
 
-def _fetch_text_lines(url: str, headers: Dict[str, str]) -> List[str]:
+def _fetch_text_lines(session: requests.Session, url: str) -> List[str]:
     try:
-        resp = requests.get(url, timeout=12, headers=headers)
+        headers = _build_headers(url)
+        _human_delay()
+        resp = _request_with_retry(session, url, headers)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text or "", "lxml")
         for tag in soup(["script", "style", "noscript"]):
@@ -189,3 +197,37 @@ def _fetch_text_lines(url: str, headers: Dict[str, str]) -> List[str]:
         return [ln.strip() for ln in text.splitlines() if ln and ln.strip()]
     except Exception:
         return []
+
+
+def _human_delay() -> None:
+    time.sleep(random.uniform(0.35, 1.05))
+
+
+def _build_headers(url: str) -> Dict[str, str]:
+    host = urlparse(url).netloc
+    scheme = urlparse(url).scheme or "https"
+    origin = f"{scheme}://{host}" if host else ""
+    return {
+        "User-Agent": random.choice(_UA_POOL),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Cache-Control": "max-age=0",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Referer": origin + "/" if origin else "",
+    }
+
+
+def _request_with_retry(session: requests.Session, url: str, headers: Dict[str, str], retries: int = 2):
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            return session.get(url, timeout=12, headers=headers, allow_redirects=True)
+        except requests.RequestException as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(0.8 * (attempt + 1) + random.uniform(0.2, 0.6))
+    raise last_err

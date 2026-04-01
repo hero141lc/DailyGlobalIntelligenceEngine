@@ -392,6 +392,70 @@ def _extract_coal_prices(items: List[Dict]) -> Dict[str, float]:
     return prices
 
 
+def _extract_coal_price_details(items: List[Dict]) -> Dict[str, Dict[str, Any]]:
+    """
+    提取八地煤价明细，尽量给出 Q5500 口径；若仅有 Q5800，则按经验折算到 Q5500。
+    返回: {name: {"price": float, "source": str, "title": str, "basis": str, "estimated": bool}}
+    """
+    targets: Dict[str, tuple[str, ...]] = {
+        "秦皇岛港": ("秦皇岛港", "秦皇岛"),
+        "京唐港": ("京唐港", "京唐"),
+        "曹妃甸港": ("曹妃甸港", "曹妃甸"),
+        "黄骅港": ("黄骅港", "黄骅"),
+        "榆林坑口": ("榆林坑口", "榆林"),
+        "鄂尔多斯坑口": ("鄂尔多斯坑口", "鄂尔多斯"),
+        "神木坑口": ("神木坑口", "神木"),
+        "府谷坑口": ("府谷坑口", "府谷"),
+    }
+    detail: Dict[str, Dict[str, Any]] = {}
+    for item in items:
+        text = f"{item.get('title', '')} {item.get('content', '')}"
+        if not text.strip():
+            continue
+        # 热值口径
+        basis = "未知口径"
+        score_bonus = 0
+        if re.search(r"(Q?\s*5500|5500K|5500大卡)", text, flags=re.I):
+            basis = "Q5500"
+            score_bonus = 3
+        elif re.search(r"(Q?\s*5800|5800K|5800大卡)", text, flags=re.I):
+            basis = "Q5800"
+            score_bonus = 1
+        # 价格
+        m = re.search(r"(\d{2,4}(?:\.\d+)?)\s*元\s*/?\s*吨", text)
+        if not m:
+            continue
+        try:
+            raw_price = float(m.group(1))
+        except (ValueError, TypeError):
+            continue
+        for name, kws in targets.items():
+            if not any(kw in text for kw in kws):
+                continue
+            estimated = False
+            price = raw_price
+            basis_show = basis
+            # 若仅拿到 Q5800，折算到 Q5500（经验下调 17 元/吨）
+            if basis == "Q5800":
+                price = raw_price - 17.0
+                basis_show = "Q5800折算Q5500"
+                estimated = True
+            quality = score_bonus
+            if name in str(item.get("title", "")):
+                quality += 1
+            prev_q = detail.get(name, {}).get("quality", -1)
+            if quality > prev_q:
+                detail[name] = {
+                    "price": price,
+                    "source": str(item.get("source", "") or "资讯源"),
+                    "title": str(item.get("title", "") or "")[:120],
+                    "basis": basis_show,
+                    "estimated": estimated,
+                    "quality": quality,
+                }
+    return detail
+
+
 def _coal_price_snapshot_path() -> Path:
     return Path("data") / "coal_price_snapshot.json"
 
@@ -432,24 +496,66 @@ def _fmt_delta(curr: float, prev: Optional[float]) -> str:
 
 
 def _build_wecom_coal_price_brief(processed: List[Dict]) -> str:
-    """企业微信煤炭简报：主流港口/煤矿价格 + 与上次对比。"""
+    """企业微信煤炭简报：八地价格 + 对比 + 口径说明。"""
     from utils.time import get_today_date
 
-    current = _extract_coal_prices(processed)
+    detail = _extract_coal_price_details(processed)
+    current = {k: float(v["price"]) for k, v in detail.items() if "price" in v}
     previous = _load_last_coal_prices()
     if current:
         _save_coal_prices(current)
 
-    port_keys = ["秦皇岛港", "曹妃甸港", "京唐港", "黄骅港"]
+    # 北方四港价格高度联动：若三港缺失且秦皇岛有值，给区间估算（显式标注）
+    if "秦皇岛港" in current:
+        qhd = current["秦皇岛港"]
+        for k in ("京唐港", "曹妃甸港", "黄骅港"):
+            if k not in detail:
+                detail[k] = {
+                    "price": qhd,
+                    "source": "四港联动估算",
+                    "title": "参考秦皇岛港同热值报价",
+                    "basis": "Q5500估算",
+                    "estimated": True,
+                }
+                current[k] = qhd
+
+    # 榆林命中时，补神木/府谷估算区间中位值，避免全空
+    if "榆林坑口" in current:
+        yulin = current["榆林坑口"]
+        if "神木坑口" not in detail:
+            detail["神木坑口"] = {
+                "price": yulin + 10.0,
+                "source": "区域价差估算",
+                "title": "神木通常较榆林偏强",
+                "basis": "Q5500估算",
+                "estimated": True,
+            }
+            current["神木坑口"] = yulin + 10.0
+        if "府谷坑口" not in detail:
+            detail["府谷坑口"] = {
+                "price": yulin - 7.0,
+                "source": "区域价差估算",
+                "title": "府谷通常较榆林偏弱",
+                "basis": "Q5500估算",
+                "estimated": True,
+            }
+            current["府谷坑口"] = yulin - 7.0
+
+    port_keys = ["秦皇岛港", "京唐港", "曹妃甸港", "黄骅港"]
     pit_keys = ["榆林坑口", "鄂尔多斯坑口", "神木坑口", "府谷坑口"]
 
     lines = [f"**煤炭价格快报 - {get_today_date()}**", ""]
+    lines.append("**口径：优先Q5500（仅采到Q5800时已折算）**")
+    lines.append("")
     lines.append("**港口煤价（元/吨）**")
     has_port = False
     for k in port_keys:
         if k in current:
             has_port = True
-            lines.append(f"- {k}：{current[k]:.1f} {_fmt_delta(current[k], previous.get(k))}")
+            d = detail.get(k, {})
+            est_tag = " [估]" if d.get("estimated") else ""
+            basis = d.get("basis", "未知口径")
+            lines.append(f"- {k}：{current[k]:.1f}{est_tag} {_fmt_delta(current[k], previous.get(k))}（{basis}）")
     if not has_port:
         lines.append("- 暂未从当日资讯中提取到明确港口价格")
 
@@ -459,23 +565,26 @@ def _build_wecom_coal_price_brief(processed: List[Dict]) -> str:
     for k in pit_keys:
         if k in current:
             has_pit = True
-            lines.append(f"- {k}：{current[k]:.1f} {_fmt_delta(current[k], previous.get(k))}")
+            d = detail.get(k, {})
+            est_tag = " [估]" if d.get("estimated") else ""
+            basis = d.get("basis", "未知口径")
+            lines.append(f"- {k}：{current[k]:.1f}{est_tag} {_fmt_delta(current[k], previous.get(k))}（{basis}）")
     if not has_pit:
         lines.append("- 暂未从当日资讯中提取到明确坑口价格")
 
-    # 补充 3 条关键信息（无链接）
-    key_titles: List[str] = []
-    for item in processed:
-        title = _strip_links_and_shrink(str(item.get("title", "")), max_len=120)
-        if title:
-            key_titles.append(title)
-        if len(key_titles) >= 3:
+    # 给出可追溯来源（按已命中地区列最多 4 条）
+    refs: List[str] = []
+    for k in port_keys + pit_keys:
+        if k in detail:
+            src = _strip_links_and_shrink(str(detail[k].get("source", "")), max_len=20)
+            tit = _strip_links_and_shrink(str(detail[k].get("title", "")), max_len=56)
+            refs.append(f"- {k}：{src} / {tit}")
+        if len(refs) >= 4:
             break
-    if key_titles:
+    if refs:
         lines.append("")
-        lines.append("**关键信息**")
-        for i, t in enumerate(key_titles, start=1):
-            lines.append(f"{i}. {t}")
+        lines.append("**来源依据（节选）**")
+        lines.extend(refs)
 
     return "\n".join(lines).strip()
 
