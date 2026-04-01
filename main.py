@@ -6,6 +6,8 @@ Daily Global Intelligence Engine
 import sys
 import html as html_module
 import re
+import json
+from pathlib import Path
 from typing import List, Dict, Optional, Any
 
 from utils.logger import logger
@@ -236,6 +238,9 @@ def _build_wecom_brief(
     """
     from utils.time import get_today_date
 
+    if mode == "coal":
+        return _build_wecom_coal_price_brief(processed)
+
     lines: List[str] = [f"**{mode} 快报 - {get_today_date()}**"]
 
     summary = _strip_links_and_shrink(report_summary or "", max_len=1600)
@@ -266,6 +271,134 @@ def _build_wecom_brief(
             lines.append(plain)
         else:
             lines.append("今日报告已生成。")
+
+    return "\n".join(lines).strip()
+
+
+def _extract_first_price(text: str) -> Optional[float]:
+    """从文本中提取首个形如 720 元/吨 的价格。"""
+    if not text:
+        return None
+    m = re.search(r"(\d{2,4}(?:\.\d+)?)\s*元\s*/?\s*吨", text)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_coal_prices(items: List[Dict]) -> Dict[str, float]:
+    """从煤炭资讯中提取主流港口与煤矿价格（元/吨）。"""
+    markers = [
+        ("秦皇岛港", ("秦皇岛",)),
+        ("曹妃甸港", ("曹妃甸",)),
+        ("京唐港", ("京唐港", "京唐")),
+        ("黄骅港", ("黄骅港", "黄骅")),
+        ("榆林坑口", ("榆林",)),
+        ("鄂尔多斯坑口", ("鄂尔多斯",)),
+        ("神木坑口", ("神木",)),
+        ("府谷坑口", ("府谷",)),
+    ]
+    prices: Dict[str, float] = {}
+    for item in items:
+        text = f"{item.get('title', '')} {item.get('content', '')}"
+        if not text.strip():
+            continue
+        for name, kws in markers:
+            if name in prices:
+                continue
+            if any(kw in text for kw in kws):
+                p = _extract_first_price(text)
+                if p is not None:
+                    prices[name] = p
+    return prices
+
+
+def _coal_price_snapshot_path() -> Path:
+    return Path("data") / "coal_price_snapshot.json"
+
+
+def _load_last_coal_prices() -> Dict[str, float]:
+    path = _coal_price_snapshot_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        prices = data.get("prices", {})
+        if isinstance(prices, dict):
+            return {str(k): float(v) for k, v in prices.items()}
+    except Exception:
+        return {}
+    return {}
+
+
+def _save_coal_prices(prices: Dict[str, float]) -> None:
+    path = _coal_price_snapshot_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"prices": prices}
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning("写入煤价快照失败: %s", e)
+
+
+def _fmt_delta(curr: float, prev: Optional[float]) -> str:
+    if prev is None:
+        return "（首日无对比）"
+    diff = curr - prev
+    if abs(diff) < 1e-9:
+        return "（较上次 持平）"
+    sign = "+" if diff > 0 else ""
+    trend = "上涨" if diff > 0 else "下跌"
+    return f"（较上次 {trend} {sign}{diff:.1f} 元/吨）"
+
+
+def _build_wecom_coal_price_brief(processed: List[Dict]) -> str:
+    """企业微信煤炭简报：主流港口/煤矿价格 + 与上次对比。"""
+    from utils.time import get_today_date
+
+    current = _extract_coal_prices(processed)
+    previous = _load_last_coal_prices()
+    if current:
+        _save_coal_prices(current)
+
+    port_keys = ["秦皇岛港", "曹妃甸港", "京唐港", "黄骅港"]
+    pit_keys = ["榆林坑口", "鄂尔多斯坑口", "神木坑口", "府谷坑口"]
+
+    lines = [f"**煤炭价格快报 - {get_today_date()}**", ""]
+    lines.append("**港口煤价（元/吨）**")
+    has_port = False
+    for k in port_keys:
+        if k in current:
+            has_port = True
+            lines.append(f"- {k}：{current[k]:.1f} {_fmt_delta(current[k], previous.get(k))}")
+    if not has_port:
+        lines.append("- 暂未从当日资讯中提取到明确港口价格")
+
+    lines.append("")
+    lines.append("**坑口煤价（元/吨）**")
+    has_pit = False
+    for k in pit_keys:
+        if k in current:
+            has_pit = True
+            lines.append(f"- {k}：{current[k]:.1f} {_fmt_delta(current[k], previous.get(k))}")
+    if not has_pit:
+        lines.append("- 暂未从当日资讯中提取到明确坑口价格")
+
+    # 补充 3 条关键信息（无链接）
+    key_titles: List[str] = []
+    for item in processed:
+        title = _strip_links_and_shrink(str(item.get("title", "")), max_len=120)
+        if title:
+            key_titles.append(title)
+        if len(key_titles) >= 3:
+            break
+    if key_titles:
+        lines.append("")
+        lines.append("**关键信息**")
+        for i, t in enumerate(key_titles, start=1):
+            lines.append(f"{i}. {t}")
 
     return "\n".join(lines).strip()
 
