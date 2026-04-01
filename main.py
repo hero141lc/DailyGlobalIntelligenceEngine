@@ -211,6 +211,65 @@ def _html_to_plain_text(html_content: str, max_len: int = 4000) -> str:
     return text
 
 
+def _strip_links_and_shrink(text: str, max_len: int = 1000) -> str:
+    """去掉 markdown/裸链接并压缩空白，保留可读的纯文本关键信息。"""
+    if not text:
+        return ""
+    cleaned = text
+    cleaned = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", cleaned)  # [text](url) -> text
+    cleaned = re.sub(r"https?://\S+", "", cleaned)  # 删除裸链接
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > max_len:
+        return cleaned[: max_len - 1].rstrip() + "…"
+    return cleaned
+
+
+def _build_wecom_brief(
+    mode: str,
+    processed: List[Dict],
+    report_summary: Optional[str],
+    stock_analysis: Optional[str],
+    fallback_html_or_md: str,
+) -> str:
+    """
+    构建企业微信精简版正文：文字总结 + 关键信息，不包含链接列表。
+    """
+    from utils.time import get_today_date
+
+    lines: List[str] = [f"**{mode} 快报 - {get_today_date()}**"]
+
+    summary = _strip_links_and_shrink(report_summary or "", max_len=1600)
+    if summary:
+        lines.append(f"\n**今日总结**\n{summary}")
+
+    analysis = _strip_links_and_shrink(stock_analysis or "", max_len=900)
+    if analysis:
+        lines.append(f"\n**市场观察**\n{analysis}")
+
+    # 关键信息：从处理后的新闻中抽取前几条标题（不带链接）
+    key_titles: List[str] = []
+    for item in processed:
+        title = _strip_links_and_shrink(str(item.get("title", "")), max_len=120)
+        if title:
+            key_titles.append(title)
+        if len(key_titles) >= 8:
+            break
+    if key_titles:
+        lines.append("\n**关键动态**")
+        for idx, title in enumerate(key_titles, start=1):
+            lines.append(f"{idx}. {title}")
+
+    # 没有总结时（例如 coal），用内容纯文本兜底
+    if len(lines) <= 1:
+        plain = _strip_links_and_shrink(_html_to_plain_text(fallback_html_or_md, max_len=1800), max_len=1800)
+        if plain:
+            lines.append(plain)
+        else:
+            lines.append("今日报告已生成。")
+
+    return "\n".join(lines).strip()
+
+
 def _run_one_report(mode: str) -> bool:
     """跑单份报告：采集 -> 处理 -> 生成 -> 推送。成功返回 True。"""
     from config import settings
@@ -289,10 +348,14 @@ def _run_one_report(mode: str) -> bool:
                 logger.warning("飞书推送失败: %s", e)
         elif ch == "wecom":
             try:
-                # 企业微信对齐飞书：发送 Markdown/纯文本正文，不直接发送 HTML 原文
-                wecom_body = (report_content if report_is_markdown else report_summary) or ""
-                if not wecom_body and not report_is_markdown:
-                    wecom_body = _html_to_plain_text(report_content, max_len=4000)
+                # 企业微信只推“文字性总结 + 关键信息”，避免链接和 HTML 噪音
+                wecom_body = _build_wecom_brief(
+                    mode=mode,
+                    processed=processed,
+                    report_summary=report_summary,
+                    stock_analysis=stock_analysis,
+                    fallback_html_or_md=report_content,
+                )
                 send_wecom(wecom_body or "今日报告已生成。")
             except Exception as e:
                 logger.warning("企业微信推送失败: %s", e)
