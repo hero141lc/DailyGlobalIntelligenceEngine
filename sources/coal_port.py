@@ -22,7 +22,7 @@ from utils.time import get_today_date, parse_date, format_date_for_display
 _COAL_PORT_KEYWORDS = ("煤", "煤炭", "动力煤", "秦皇岛", "环渤海", "港口", "焦煤", "焦炭")
 
 _PORT_MARKERS = ("秦皇岛", "曹妃甸", "京唐", "黄骅", "环渤海")
-_PRICE_RE = r"\d{2,4}(?:\.\d+)?\s*元\s*/?\s*吨"
+_PRICE_RE = r"(?:报价|价格|平仓价|现货价|收盘价)?\s*(\d{2,4}(?:\.\d+)?)\s*元\s*/?\s*吨(?:左右)?"
 _DETAIL_HINTS = ("煤炭市场早报", "价格快讯", "价格指数", "动力煤", "坑口", "港口", "煤价", "煤炭")
 _UA_POOL = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -99,7 +99,7 @@ def _collect_port_from_web() -> List[Dict]:
             for tag in soup(["script", "style", "noscript"]):
                 tag.decompose()
             text = soup.get_text("\n", strip=True)
-            lines = [ln.strip() for ln in text.splitlines() if ln and ln.strip()]
+            lines = _extract_candidate_lines(soup, text, url)
             for ln in lines:
                 if not any(m in ln for m in _PORT_MARKERS):
                     continue
@@ -167,7 +167,11 @@ def _collect_detail_links(soup: BeautifulSoup, base_url: str) -> List[str]:
         href = (a.get("href") or "").strip()
         if not href:
             continue
+        href_l = href.lower()
         if not any(h in text for h in _DETAIL_HINTS):
+            if not any(k in href_l for k in ("coal", "meitan", "price", "hangqing", "market", "index")):
+                continue
+        if any(x in href_l for x in ("login", "register", "video", "live")):
             continue
         full = urljoin(base_url, href)
         p = urlparse(full)
@@ -194,9 +198,43 @@ def _fetch_text_lines(session: requests.Session, url: str) -> List[str]:
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
         text = soup.get_text("\n", strip=True)
-        return [ln.strip() for ln in text.splitlines() if ln and ln.strip()]
+        return _extract_candidate_lines(soup, text, url)
     except Exception:
         return []
+
+
+def _extract_candidate_lines(soup: BeautifulSoup, text: str, url: str) -> List[str]:
+    """按站点特征提取更可能含煤价的候选行。"""
+    lines: List[str] = []
+    host = urlparse(url).netloc
+    # 1) 通用文本行
+    for ln in text.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        lines.append(s)
+    # 2) 表格增强（商务预报/财经站常见）
+    for tr in soup.find_all("tr"):
+        row = " ".join(td.get_text(" ", strip=True) for td in tr.find_all(["th", "td"]))
+        row = re.sub(r"\s+", " ", row).strip()
+        if row:
+            lines.append(row)
+    # 3) 同花顺/东财常见资讯块
+    if "10jqka.com.cn" in host or "eastmoney.com" in host:
+        for node in soup.find_all(["p", "li", "div"]):
+            s = node.get_text(" ", strip=True)
+            s = re.sub(r"\s+", " ", s).strip()
+            if len(s) >= 16:
+                lines.append(s)
+    # 去重保序
+    seen = set()
+    uniq: List[str] = []
+    for s in lines:
+        if s in seen:
+            continue
+        seen.add(s)
+        uniq.append(s)
+    return uniq[:1200]
 
 
 def _human_delay() -> None:
