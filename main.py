@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 
+import requests
+from bs4 import BeautifulSoup
+
 from utils.logger import logger
 from utils.dedup import deduplicate_items
 from utils import google_rss
@@ -288,30 +291,104 @@ def _extract_first_price(text: str) -> Optional[float]:
         return None
 
 
+def _extract_price_by_keywords(text: str, keywords: tuple[str, ...]) -> Optional[float]:
+    """
+    在文本中按“关键词附近价格”提取，优先命中更可靠的区域价位。
+    例如：秦皇岛...720元/吨
+    """
+    if not text:
+        return None
+    for kw in keywords:
+        # 关键词后 0~30 个任意字符内出现价格
+        m = re.search(rf"{re.escape(kw)}[\s\S]{{0,30}}?(\d{{2,4}}(?:\.\d+)?)\s*元\s*/?\s*吨", text)
+        if m:
+            try:
+                return float(m.group(1))
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
+def _fetch_article_text(url: str) -> str:
+    """抓取文章正文纯文本，用于二次抽取煤价。"""
+    if not url or not str(url).startswith("http"):
+        return ""
+    try:
+        resp = requests.get(
+            url,
+            timeout=12,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                )
+            },
+        )
+        resp.raise_for_status()
+        html = resp.text or ""
+        if not html:
+            return ""
+        soup = BeautifulSoup(html, "lxml")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        text = soup.get_text(" ", strip=True)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:12000]
+    except Exception:
+        return ""
+
+
 def _extract_coal_prices(items: List[Dict]) -> Dict[str, float]:
     """从煤炭资讯中提取主流港口与煤矿价格（元/吨）。"""
-    markers = [
-        ("秦皇岛港", ("秦皇岛",)),
-        ("曹妃甸港", ("曹妃甸",)),
+    markers: List[tuple[str, tuple[str, ...]]] = [
+        ("秦皇岛港", ("秦皇岛港", "秦皇岛")),
+        ("曹妃甸港", ("曹妃甸港", "曹妃甸")),
         ("京唐港", ("京唐港", "京唐")),
         ("黄骅港", ("黄骅港", "黄骅")),
-        ("榆林坑口", ("榆林",)),
-        ("鄂尔多斯坑口", ("鄂尔多斯",)),
-        ("神木坑口", ("神木",)),
-        ("府谷坑口", ("府谷",)),
+        ("榆林坑口", ("榆林坑口", "榆林")),
+        ("鄂尔多斯坑口", ("鄂尔多斯坑口", "鄂尔多斯")),
+        ("神木坑口", ("神木坑口", "神木")),
+        ("府谷坑口", ("府谷坑口", "府谷")),
     ]
     prices: Dict[str, float] = {}
+    missing = {name for name, _ in markers}
+
+    # 第一轮：用 RSS 标题/摘要快速抽取
     for item in items:
         text = f"{item.get('title', '')} {item.get('content', '')}"
         if not text.strip():
             continue
         for name, kws in markers:
-            if name in prices:
+            if name not in missing:
                 continue
-            if any(kw in text for kw in kws):
-                p = _extract_first_price(text)
+            p = _extract_price_by_keywords(text, kws)
+            if p is not None:
+                prices[name] = p
+                missing.discard(name)
+
+    # 第二轮：命中不足时，抓取部分正文再抽取
+    if missing:
+        fetch_count = 0
+        for item in items:
+            if not missing or fetch_count >= 10:
+                break
+            url = str(item.get("url", "") or "").strip()
+            if not url:
+                continue
+            article_text = _fetch_article_text(url)
+            if not article_text:
+                continue
+            fetch_count += 1
+            for name, kws in markers:
+                if name not in missing:
+                    continue
+                p = _extract_price_by_keywords(article_text, kws)
                 if p is not None:
                     prices[name] = p
+                    missing.discard(name)
+
+    if missing:
+        logger.info("煤价提取未命中项: %s", ", ".join(sorted(missing)))
     return prices
 
 

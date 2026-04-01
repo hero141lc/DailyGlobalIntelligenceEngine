@@ -5,6 +5,9 @@
 from typing import List, Dict, Optional
 
 import feedparser
+import re
+import requests
+from bs4 import BeautifulSoup
 
 from config import settings
 from utils.logger import logger
@@ -13,6 +16,8 @@ from utils.time import get_today_date, parse_date, format_date_for_display
 
 
 _PIT_KEYWORDS = ("煤", "煤炭", "产地", "坑口", "榆林", "鄂尔多斯", "山西", "陕西", "蒙西", "焦煤", "焦炭")
+_PIT_MARKERS = ("榆林", "鄂尔多斯", "神木", "府谷", "产地", "坑口")
+_PRICE_RE = r"\d{2,4}(?:\.\d+)?\s*元\s*/?\s*吨"
 
 def _parse_entry(entry: feedparser.FeedParserDict, source_name: str) -> Optional[Dict]:
     """将 RSS 条目解析为标准数据项。"""
@@ -59,5 +64,62 @@ def collect_all() -> List[Dict]:
             item = _parse_entry(entry, source_name)
             if item and item.get("title"):
                 all_items.append(item)
+    # 网页补充源：从商务预报/煤炭经济网/东方财富等页面抓取价格句
+    all_items.extend(_collect_pit_from_web())
     logger.info("产地坑口：采集到 %d 条", len(all_items))
     return all_items
+
+
+def _collect_pit_from_web() -> List[Dict]:
+    items: List[Dict] = []
+    urls = getattr(settings, "COAL_WEB_SOURCES", None) or []
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    for page_url in urls:
+        url = str(page_url or "").strip()
+        if not url.startswith("http"):
+            continue
+        try:
+            resp = requests.get(url, timeout=12, headers=headers)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text or "", "lxml")
+            for tag in soup(["script", "style", "noscript"]):
+                tag.decompose()
+            text = soup.get_text("\n", strip=True)
+            lines = [ln.strip() for ln in text.splitlines() if ln and ln.strip()]
+            for ln in lines:
+                if not any(m in ln for m in _PIT_MARKERS):
+                    continue
+                if "煤" not in ln:
+                    continue
+                if not re.search(_PRICE_RE, ln):
+                    continue
+                items.append(
+                    {
+                        "category": "产地坑口",
+                        "title": ln[:200],
+                        "content": ln[:500],
+                        "source": _web_source_name(url),
+                        "url": url,
+                        "published_at": get_today_date(),
+                    }
+                )
+                if len(items) >= 20:
+                    break
+        except Exception as e:
+            logger.debug("产地坑口网页采集失败 %s: %s", url, e)
+    return items
+
+
+def _web_source_name(url: str) -> str:
+    if "mofcom.gov.cn" in url:
+        return "商务预报"
+    if "ccera.com.cn" in url:
+        return "中国煤炭经济网"
+    if "eastmoney.com" in url:
+        return "东方财富"
+    return "网页源"

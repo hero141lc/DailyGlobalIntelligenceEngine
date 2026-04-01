@@ -101,6 +101,15 @@ COAL_PIT_SOURCES: List[str] = _coal_sources("COAL_PIT_URL", _COAL_PIT_DEFAULT)
 COAL_POWERPLANT_SOURCES: List[str] = _coal_sources("COAL_POWERPLANT_URL", _COAL_POWERPLANT_DEFAULT)
 COAL_POLICY_SOURCES: List[str] = _coal_sources("COAL_POLICY_URL", _COAL_POLICY_DEFAULT)
 
+# 煤炭价格网页补充源（非 RSS）：用于补齐“港口/坑口 + 元/吨”结构化价格提取
+# 支持环境变量覆盖（逗号分隔）
+_COAL_WEB_DEFAULT = (
+    "https://cif.mofcom.gov.cn/cif/html/,"
+    "https://ccera.com.cn/index.html,"
+    "https://finance.eastmoney.com/"
+)
+COAL_WEB_SOURCES: List[str] = _coal_sources("COAL_WEB_URLS", _COAL_WEB_DEFAULT)
+
 # LLM API 配置 - 使用 GitHub 提供的模型
 # GitHub Actions 会自动提供 GITHUB_TOKEN 环境变量（通过 github.token）
 # 也可以手动在 Secrets 中配置 GITHUB_TOKEN
