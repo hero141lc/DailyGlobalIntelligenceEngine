@@ -232,6 +232,7 @@ def _strip_links_and_shrink(text: str, max_len: int = 1000) -> str:
 def _build_wecom_brief(
     mode: str,
     processed: List[Dict],
+    raw_items: Optional[List[Dict]],
     report_summary: Optional[str],
     stock_analysis: Optional[str],
     fallback_html_or_md: str,
@@ -242,7 +243,7 @@ def _build_wecom_brief(
     from utils.time import get_today_date
 
     if mode == "coal":
-        return _build_wecom_coal_price_brief(processed)
+        return _build_wecom_coal_price_brief(raw_items or processed, processed)
 
     lines: List[str] = [f"**{mode} 快报 - {get_today_date()}**"]
 
@@ -495,15 +496,26 @@ def _fmt_delta(curr: float, prev: Optional[float]) -> str:
     return f"（较上次 {trend} {sign}{diff:.1f} 元/吨）"
 
 
-def _build_wecom_coal_price_brief(processed: List[Dict]) -> str:
+def _build_wecom_coal_price_brief(price_items: List[Dict], news_items: List[Dict]) -> str:
     """企业微信煤炭简报：八地价格 + 对比 + 口径说明。"""
     from utils.time import get_today_date
 
-    detail = _extract_coal_price_details(processed)
+    detail = _extract_coal_price_details(price_items)
     current = {k: float(v["price"]) for k, v in detail.items() if "price" in v}
     previous = _load_last_coal_prices()
     if current:
         _save_coal_prices(current)
+    elif previous:
+        # 当日未提取到新价格时，回退到上次快照，避免给出“全空”不可读快报
+        current = dict(previous)
+        for k, v in current.items():
+            detail[k] = {
+                "price": v,
+                "source": "历史快照",
+                "title": "当日未抓到明确报价，沿用上次收集值",
+                "basis": "Q5500(快照)",
+                "estimated": True,
+            }
 
     # 北方四港价格高度联动：若三港缺失且秦皇岛有值，给区间估算（显式标注）
     if "秦皇岛港" in current:
@@ -585,6 +597,26 @@ def _build_wecom_coal_price_brief(processed: List[Dict]) -> str:
         lines.append("")
         lines.append("**来源依据（节选）**")
         lines.extend(refs)
+
+    # 行业新闻（放在价格之后）
+    news_titles: List[str] = []
+    for item in news_items:
+        cat = str(item.get("category", "") or "")
+        if cat not in ("电厂库存", "煤炭政策", "港口煤价", "产地坑口"):
+            continue
+        title = _strip_links_and_shrink(str(item.get("title", "")), max_len=70)
+        if not title:
+            continue
+        if title in news_titles:
+            continue
+        news_titles.append(title)
+        if len(news_titles) >= 6:
+            break
+    if news_titles:
+        lines.append("")
+        lines.append("**行业新闻要点**")
+        for i, t in enumerate(news_titles, start=1):
+            lines.append(f"{i}. {t}")
 
     return "\n".join(lines).strip()
 
@@ -671,6 +703,7 @@ def _run_one_report(mode: str) -> bool:
                 wecom_body = _build_wecom_brief(
                     mode=mode,
                     processed=processed,
+                    raw_items=all_items,
                     report_summary=report_summary,
                     stock_analysis=stock_analysis,
                     fallback_html_or_md=report_content,
