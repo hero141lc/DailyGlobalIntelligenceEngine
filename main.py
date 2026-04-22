@@ -423,12 +423,8 @@ def _extract_coal_price_details(items: List[Dict]) -> Dict[str, Dict[str, Any]]:
             basis = "Q5800"
             score_bonus = 1
         # 价格
-        m = re.search(r"(\d{2,4}(?:\.\d+)?)\s*元\s*/?\s*吨", text)
-        if not m:
-            continue
-        try:
-            raw_price = float(m.group(1))
-        except (ValueError, TypeError):
+        raw_price = _extract_numeric_price_from_text(text)
+        if raw_price is None:
             continue
         for name, kws in targets.items():
             if not any(kw in text for kw in kws):
@@ -455,6 +451,33 @@ def _extract_coal_price_details(items: List[Dict]) -> Dict[str, Dict[str, Any]]:
                     "quality": quality,
                 }
     return detail
+
+
+def _extract_numeric_price_from_text(text: str) -> Optional[float]:
+    """
+    更鲁棒地提取煤价数值：
+    - 标准：xxx元/吨
+    - 简写：5500K 报价690 / 指数688
+    """
+    if not text:
+        return None
+    patterns = [
+        r"(\d{2,4}(?:\.\d+)?)\s*元\s*/?\s*吨",
+        r"(?:Q?\s*(?:5500|5800)|(?:5500|5800)K)[^0-9]{0,14}(?:报价|价格|指数|报|为|在)?\s*(\d{2,4}(?:\.\d+)?)",
+        r"(?:报价|价格|指数|报|为|在)\s*(\d{2,4}(?:\.\d+)?)",
+    ]
+    for p in patterns:
+        m = re.search(p, text, flags=re.I)
+        if not m:
+            continue
+        try:
+            v = float(m.group(1))
+        except (ValueError, TypeError):
+            continue
+        # 过滤明显非价格数字
+        if 300 <= v <= 2000:
+            return v
+    return None
 
 
 def _coal_price_snapshot_path() -> Path:
@@ -597,6 +620,29 @@ def _build_wecom_coal_price_brief(price_items: List[Dict], news_items: List[Dict
         lines.append("")
         lines.append("**来源依据（节选）**")
         lines.extend(refs)
+
+    # 一句话总结：基于已命中价格的涨跌分布
+    ups = downs = flats = 0
+    for k, v in current.items():
+        prev = previous.get(k)
+        if prev is None:
+            continue
+        diff = v - prev
+        if abs(diff) < 1e-9:
+            flats += 1
+        elif diff > 0:
+            ups += 1
+        else:
+            downs += 1
+    if ups or downs or flats:
+        lines.append("")
+        if ups > downs:
+            tone = "偏强运行"
+        elif downs > ups:
+            tone = "偏弱运行"
+        else:
+            tone = "窄幅震荡"
+        lines.append(f"**一句话总结**：样本中上涨{ups}项、下跌{downs}项、持平{flats}项，整体{tone}。")
 
     # 行业新闻（放在价格之后）
     news_titles: List[str] = []
