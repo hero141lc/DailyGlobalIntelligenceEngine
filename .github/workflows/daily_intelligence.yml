@@ -5,7 +5,7 @@ on:
     # UTC 23:00 (北京时间早上 7:00)
     - cron: '0 23 * * *'
     # UTC 05:00 (北京时间下午 12:47)
-    - cron: '47 4 * * *'
+    - cron: '17 4 * * *'
   workflow_dispatch:  # 允许手动触发
 
 jobs:
