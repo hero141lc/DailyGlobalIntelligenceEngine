@@ -19,8 +19,9 @@ from utils import google_rss
 from sources import energy, ai, space, fed, stocks
 from sources import web_sources, commodities_military, rss_extra, twitter
 from sources import coal_port, coal_pit, coal_powerplant, coal_policy
+from sources import upstream_materials
 from llm.github_llm import summarize_batch_unified, generate_report_summary_with_reasoning, generate_stock_analysis
-from formatter.report_builder import build_html_report
+from formatter.report_builder import build_html_report, build_markdown_report
 from formatter.stock_report import build_stock_report
 from formatter.coal_report import build_coal_report
 from mail.mailer import send_report
@@ -42,6 +43,7 @@ SOURCE_MODULES: Dict[str, Any] = {
     "coal_pit": coal_pit,
     "coal_powerplant": coal_powerplant,
     "coal_policy": coal_policy,
+    "upstream_materials": upstream_materials,
 }
 
 
@@ -707,6 +709,21 @@ def _run_one_report(mode: str) -> bool:
             data_sources=data_sources,
             stock_analysis=stock_analysis,
         )
+        try:
+            from utils.time import get_today_date
+            md_content = build_markdown_report(
+                processed,
+                report_summary=report_summary,
+                stock_analysis=stock_analysis,
+            )
+            today_compact = get_today_date().replace("-", "")
+            reports_dir = Path("reports")
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            md_path = reports_dir / f"Tech_Upstream_Morning_Report_{today_compact}.md"
+            md_path.write_text(md_content, encoding="utf-8")
+            logger.info("Markdown 晨报已保存: %s", md_path)
+        except Exception as e:
+            logger.warning("保存 Markdown 晨报失败: %s", e)
     elif mode == "stock":
         report_content = build_stock_report(processed, stock_analysis=stock_analysis)
         report_is_markdown = True

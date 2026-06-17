@@ -384,6 +384,80 @@ def collect_index_data() -> List[Dict]:
     
     return indices
 
+
+def collect_global_market_indices() -> List[Dict]:
+    """采集日韩美主要指数，category=全球市场。"""
+    indices: List[Dict] = []
+    global_map = getattr(settings, "GLOBAL_MARKET_INDICES", None) or {}
+    for market, name_symbol in global_map.items():
+        for name, symbol in name_symbol.items():
+            data = get_index_data_stooq(symbol, name)
+            if not data:
+                continue
+            data["category"] = "全球市场"
+            data["market"] = market
+            data["index_name"] = name
+            indices.append(data)
+    return indices
+
+
+def _tech_movers_for_market(market: str, symbols: List[str], top_n: int = 3) -> List[Dict]:
+    """单市场科技个股涨跌幅前列。"""
+    if not symbols:
+        return []
+    all_data: List[Dict] = []
+    batch = get_stocks_batch_yfinance(symbols)
+    if not batch:
+        for i, sym in enumerate(symbols):
+            if i > 0:
+                time.sleep(getattr(settings, "STOOQ_DELAY", 0.5) or 0.5)
+            d = get_stock_data_stooq(sym.replace(".", "-") if "." in sym else sym)
+            if d:
+                batch.append(d)
+    for d in batch:
+        sym = d["symbol"]
+        chg = d["change_pct"]
+        close = d.get("close", 0)
+        all_data.append({
+            "category": "科技个股",
+            "market": market,
+            "title": f"[{market}] {sym} {chg:+.2f}%",
+            "content": f"{sym} 收盘 {close:.2f}，涨跌 {chg:+.2f}%",
+            "source": "Yahoo Finance",
+            "url": f"https://finance.yahoo.com/quote/{sym}",
+            "published_at": get_today_date(),
+            "change_pct": chg,
+            "close": close,
+            "symbol": sym,
+        })
+    if not all_data:
+        return []
+    all_data.sort(key=lambda x: x.get("change_pct", 0), reverse=True)
+    gainers = all_data[:top_n]
+    gainer_syms = {g["symbol"] for g in gainers}
+    losers = [x for x in all_data if x["symbol"] not in gainer_syms][-top_n:]
+    losers.reverse()
+    result = []
+    for g in gainers:
+        result.append({**g, "sub_label": "领涨"})
+    for lo in losers:
+        result.append({**lo, "sub_label": "领跌"})
+    return result
+
+
+def collect_global_tech_movers(top_n: int = 3) -> List[Dict]:
+    """采集各市场科技个股涨跌幅前列。"""
+    watchlists = getattr(settings, "GLOBAL_TECH_WATCHLIST", None) or {}
+    result: List[Dict] = []
+    for market, symbols in watchlists.items():
+        try:
+            movers = _tech_movers_for_market(market, symbols, top_n=top_n)
+            result.extend(movers)
+            logger.info("科技个股 %s：%d 条", market, len(movers))
+        except Exception as e:
+            logger.warning("科技个股采集失败 %s: %s", market, e)
+    return result
+
 def collect_all() -> List[Dict]:
     """
     采集所有美股市场数据
@@ -416,5 +490,21 @@ def collect_all() -> List[Dict]:
         all_data.extend(movers)
     except Exception as e:
         logger.warning(f"采集今日涨跌一览失败: {e}（不影响整体流程）")
+
+    # 全球市场指数（日韩美）
+    try:
+        global_indices = collect_global_market_indices()
+        all_data.extend(global_indices)
+        logger.info(f"全球市场指数：{len(global_indices)} 个")
+    except Exception as e:
+        logger.warning(f"采集全球市场指数失败: {e}（不影响整体流程）")
+
+    # 各市场科技个股涨跌幅
+    try:
+        tech_movers = collect_global_tech_movers(top_n=3)
+        all_data.extend(tech_movers)
+        logger.info(f"科技个股：{len(tech_movers)} 条")
+    except Exception as e:
+        logger.warning(f"采集科技个股失败: {e}（不影响整体流程）")
     
     return all_data

@@ -66,7 +66,7 @@ WECOM_WEBHOOK = (
 MODE_SOURCES: Dict[str, List[str]] = {
     "daily_intel": [
         "web_sources", "google_rss", "energy", "commodities_military", "ai", "space",
-        "fed", "stocks", "rss_extra", "twitter",
+        "fed", "stocks", "upstream_materials", "rss_extra", "twitter",
     ],
     "stock": ["stocks", "rss_extra", "fed"],
     "coal": ["coal_port", "coal_pit", "coal_powerplant", "coal_policy"],
@@ -258,6 +258,89 @@ STOCK_INDICES = {
     "纳指100": "^NDX",  # 纳斯达克 100
     "费城半导体": "^SOX",  # 半导体指数
 }
+
+# 全球市场指数（日韩美，用于晨报第三章）
+GLOBAL_MARKET_INDICES: Dict[str, Dict[str, str]] = {
+    "US": {
+        "标普500": "^GSPC",
+        "纳斯达克": "^IXIC",
+        "费城半导体": "^SOX",
+    },
+    "JP": {
+        "日经225": "^N225",
+    },
+    "KR": {
+        "KOSPI": "^KS11",
+    },
+}
+
+# 各市场科技个股面板（yfinance 符号）
+GLOBAL_TECH_WATCHLIST: Dict[str, List[str]] = {
+    "US": [
+        "NVDA", "AAPL", "MSFT", "AMD", "AVGO", "TSM", "ASML", "MU", "INTC", "QCOM",
+    ],
+    "JP": ["6758.T", "8035.T", "6861.T", "6501.T", "6981.T"],
+    "KR": ["005930.KS", "000660.KS", "035420.KS", "035720.KS"],
+}
+
+# 上游原材料追踪（硬件供应链）
+UPSTREAM_MATERIALS: List[Dict] = [
+    {
+        "name": "碳酸锂",
+        "keywords": ["碳酸锂", "lithium carbonate", "电池级碳酸锂"],
+        "unit": "万元/吨",
+    },
+    {
+        "name": "六氟磷酸锂",
+        "keywords": ["六氟磷酸锂", "LiPF6", "六氟"],
+        "unit": "万元/吨",
+    },
+    {
+        "name": "MLCC/被动元件",
+        "keywords": ["MLCC", "被动元件", "电容", "Murata", "Yageo", "村田"],
+        "unit": "元/千只",
+    },
+    {
+        "name": "光纤",
+        "keywords": ["光纤", "光缆", "optical fiber", "G.652"],
+        "unit": "元/芯公里",
+    },
+    {
+        "name": "磷化铟",
+        "keywords": ["磷化铟", "InP", "indium phosphide"],
+        "unit": "元/片",
+    },
+    {
+        "name": "铜箔",
+        "keywords": ["铜箔", "电解铜箔", "copper foil", "锂电铜箔"],
+        "unit": "元/吨",
+        "yf_symbol": "HG=F",
+    },
+    {
+        "name": "液冷剂",
+        "keywords": ["液冷", "冷却液", "immersion cooling", "氟化液", "数据中心散热"],
+        "unit": "元/升",
+    },
+]
+
+# 上游原材料 RSS 补充源（中文财经 + Google News 搜索）
+_UPSTREAM_RSS_DEFAULT = (
+    "https://rss.sina.com.cn/finance/future.xml,"
+    "https://news.google.com/rss/search?q=碳酸锂+价格&hl=zh-CN&gl=CN&ceid=CN:zh-Hans,"
+    "https://news.google.com/rss/search?q=六氟磷酸锂+价格&hl=zh-CN&gl=CN&ceid=CN:zh-Hans,"
+    "https://news.google.com/rss/search?q=MLCC+涨价+被动元件&hl=zh-CN&gl=CN&ceid=CN:zh-Hans,"
+    "https://news.google.com/rss/search?q=铜箔+价格+锂电&hl=zh-CN&gl=CN&ceid=CN:zh-Hans,"
+    "https://news.google.com/rss/search?q=磷化铟+价格&hl=zh-CN&gl=CN&ceid=CN:zh-Hans,"
+    "https://news.google.com/rss/search?q=液冷+数据中心+散热&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+)
+
+
+def _upstream_rss_sources() -> List[str]:
+    raw = os.getenv("UPSTREAM_RSS_URLS", "").strip() or _UPSTREAM_RSS_DEFAULT
+    return [u.strip() for u in raw.split(",") if u.strip()]
+
+
+UPSTREAM_RSS_SOURCES: List[str] = _upstream_rss_sources()
 # 重点关注个股：七姐妹(油)、维谛/美光/甲骨文/半导体/生物医药/消费/工业等
 STOCK_WATCHLIST = [
     # 科技与七姐妹
@@ -331,6 +414,10 @@ GOOGLE_NEWS_TASKS: List[Dict] = [
     {"preset": "topic", "topic_keywords": ["Intel", "Google", "Alphabet"], "category": "关键人物", "max_items": 10},
     {"preset": "topic", "topic_keywords": ["geopolitics", "US", "China"], "category": "地缘政治", "max_items": 12},
     {"preset": "topic", "topic_keywords": ["institutional", "quant", "research", "report"], "category": "机构研报", "max_items": 10},
+    # 上游原材料专题
+    {"preset": "topic", "topic_keywords": ["lithium carbonate", "LiPF6", "battery material", "price"], "category": "上游原材料", "max_items": 10},
+    {"preset": "topic", "topic_keywords": ["copper foil", "optical fiber", "InP", "indium phosphide", "price"], "category": "上游原材料", "max_items": 10},
+    {"preset": "topic", "topic_keywords": ["immersion cooling", "data center liquid cooling", "coolant"], "category": "上游原材料", "max_items": 8},
 ]
 GOOGLE_NEWS_REQUEST_INTERVAL = 1  # 秒
 

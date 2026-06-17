@@ -401,11 +401,11 @@ def generate_report_summary_with_reasoning(items: List[Dict]) -> Dict[str, str]:
         parts.append(f"[{i}] [{cat}] {title} | {summary}")
     block = "\n".join(parts)
 
-    prompt = f"""你是一位全球科技与金融情报分析师。根据以下今日情报条目，写一长段「今日总结与展望」，要求深度分析、信息密度高。
+    prompt = f"""你是一位全球科技与上游供应链情报分析师。根据以下今日情报条目，写一长段「今日总结与展望」，要求深度分析、信息密度高。
 
 要求：
 1. 中文，整体为一长串连贯段落（不要分小节标题，不要列表符号）。
-2. 总结部分（前半）：对今日情报做深度分析——概括事实、各条关联、对市场/政策/行业的影响；涵盖知名企业（维谛/美光/甲骨文/七姐妹等）财报与访华、关键人物（黄仁勋/马斯克/特朗普/英特尔/谷歌）、地缘政治、机构研报、商业航天/星链、美联储、股市、能源、黄金、石油、军事、AI 等，按重要性组织。总结时优先突出「产业链、涨价、大单、订单、供应紧张」等相关要点。
+2. 总结部分（前半）：须覆盖三大板块——(a) 全球科技要闻与产业链动态；(b) 硬件上游原材料（碳酸锂、六氟磷酸锂、MLCC、光纤、磷化铟、铜箔、液冷剂等）涨价或供需变化；(c) 日本、韩国、美国股市及科技板块情绪。按重要性组织，优先突出「产业链、涨价、大单、订单、供应紧张」。
 3. 预测部分（后半）：基于今日情报，对接下来几日或一周内的可能动向做简明展望。
 4. 总字数约 800～1200 字；直接输出整段文字，不要小标题与编号列表。
 
@@ -414,7 +414,7 @@ def generate_report_summary_with_reasoning(items: List[Dict]) -> Dict[str, str]:
 
 请直接输出一长段深度总结与展望："""
     messages = [
-        {"role": "system", "content": "你擅长写详实的每日情报深度总结，并基于情报给出简明展望与预测。"},
+        {"role": "system", "content": "你擅长写详实的每日科技与上游市场晨报总结，覆盖科技要闻、原材料价格与日韩美股市情绪。"},
         {"role": "user", "content": prompt},
     ]
     result = _call_github_models_with_reasoning(
@@ -470,10 +470,17 @@ def generate_stock_analysis(items: List[Dict]) -> Optional[str]:
     """
     if not items:
         return None
-    stock_items = [i for i in items if i.get("category") in ("大涨个股", "今日涨跌", "美股市场")]
+    stock_items = [
+        i for i in items
+        if i.get("category") in (
+            "大涨个股", "今日涨跌", "美股市场", "全球市场", "科技个股",
+        )
+    ]
     news_snippets = []
     for i in items[:50]:
-        if i.get("category") in ("大涨个股", "今日涨跌", "美股市场"):
+        if i.get("category") in (
+            "大涨个股", "今日涨跌", "美股市场", "全球市场", "科技个股",
+        ):
             continue
         t = (i.get("title") or "")[:60]
         c = (i.get("content") or i.get("summary") or "")[:80]
@@ -482,19 +489,21 @@ def generate_stock_analysis(items: List[Dict]) -> Optional[str]:
     stock_lines = []
     for i in stock_items:
         sym = i.get("symbol") or i.get("name") or i.get("title", "")
+        mkt = i.get("market", "")
         chg = i.get("change_pct")
         if chg is not None:
-            stock_lines.append(f"{sym}: {chg:+.2f}%")
+            prefix = f"[{mkt}] " if mkt else ""
+            stock_lines.append(f"{prefix}{sym}: {chg:+.2f}%")
     stock_block = "\n".join(stock_lines[:30]) if stock_lines else "（无当日行情）"
     news_block = "\n".join(news_snippets[:25]) if news_snippets else "（无）"
-    prompt = f"""你是一位美股分析师。根据以下「当日行情」与「当日要闻摘要」，写一段简短中文分析（约 300～500 字），包含：
-1. 涨跌原因简析：结合要闻解释今日哪些板块/个股为何涨、为何跌。
-2. 可关注方向：推荐 1～3 类或具体标的（如某行业、某龙头），并简述理由。
+    prompt = f"""你是一位覆盖日本、韩国、美国的科技板块分析师。根据以下「当日行情」与「当日要闻摘要」，写一段简短中文分析（约 300～500 字），包含：
+1. 涨跌原因简析：结合要闻解释美日韩各市场科技板块及个股的涨跌逻辑。
+2. 可关注方向：推荐 1～3 类或具体标的（行业/龙头），并简述理由。
 3. 建议规避方向：哪些类型或标的建议减仓/观望，并简述理由。
 
 要求：客观、基于给定信息，不要编造；直接输出分析正文，不要小标题与编号。
 
-【当日行情】
+【当日行情（含日韩美指数与科技个股）】
 {stock_block}
 
 【当日要闻摘要】
@@ -502,7 +511,7 @@ def generate_stock_analysis(items: List[Dict]) -> Optional[str]:
 
 请直接输出分析正文："""
     messages = [
-        {"role": "system", "content": "你是美股分析师，根据行情与新闻写简短的涨跌原因与关注/规避建议。"},
+        {"role": "system", "content": "你是覆盖日韩美市场的科技板块分析师，根据行情与新闻写简短的涨跌原因与关注/规避建议。"},
         {"role": "user", "content": prompt},
     ]
     max_tok = getattr(settings, "LLM_MAX_TOKENS", 4000) or 4000
