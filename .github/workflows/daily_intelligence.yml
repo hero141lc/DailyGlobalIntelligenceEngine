@@ -2,8 +2,9 @@ name: Daily Global Intelligence Engine
 
 on:
   schedule:
-    # UTC 23:30 (北京时间早上 7:30)
-    - cron: '30 23 * * *'
+    # UTC 22:30 (北京时间早上 6:24)
+    - cron: '24 22 * * *'
+    - cron: '24 5 * * *'
   workflow_dispatch:  # 允许手动触发
 
 jobs:
